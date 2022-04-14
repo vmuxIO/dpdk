@@ -52,6 +52,16 @@ if get_option('enable_kmods')
 	subdir('kernel')
 endif
 
+# enable extra warnings and disable any unwanted warnings
+warning_flags = [
+  '-Wno-stringop-overflow'
+]
+foreach arg: warning_flags
+	if cc.has_argument(arg)
+		add_project_arguments(arg, language: 'c')
+	endif
+endforeach
+
 # write the build config
 build_cfg = 'rte_build_config.h'
 configure_file(output: build_cfg,

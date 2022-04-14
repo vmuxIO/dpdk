@@ -43,6 +43,7 @@ enabled_libs = [] # used to print summary at the end
 
 # -D_GNU_SOURCE unconditionally
 default_cflags += '-D_GNU_SOURCE'
+default_cflags += '-Wno-stringop-overflow'
 
 foreach l:libraries
 	build = true

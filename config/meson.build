@@ -146,6 +146,7 @@ warning_flags = [
 	'-Wsign-compare',
 	'-Wcast-qual',
 	'-Wno-address-of-packed-member'
+  '-Wno-stringop-overflow'
 ]
 if not dpdk_conf.get('RTE_ARCH_64')
 # for 32-bit, don't warn about casting a 32-bit pointer to 64-bit int - it's fine!!
