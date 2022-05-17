@@ -97,6 +97,8 @@ static int ice_dev_close(struct rte_eth_dev *dev);
 static int ice_dev_reset(struct rte_eth_dev *dev);
 static int ice_dev_info_get(struct rte_eth_dev *dev,
 			    struct rte_eth_dev_info *dev_info);
+static int ice_set_queue_rate_limit(struct rte_eth_dev *dev,
+			   uint16_t queue_idx, uint16_t tx_rate);
 static int ice_link_update(struct rte_eth_dev *dev,
 			   int wait_to_complete);
 static int ice_dev_set_link_up(struct rte_eth_dev *dev);
@@ -195,6 +197,39 @@ static const struct rte_pci_id pci_id_ice_map[] = {
 	{ .vendor_id = 0, /* sentinel */ },
 };
 
+
+/// MYMARK new bandwidth
+/// Note: this deviates from the documentation in that it does not take tx_rate
+/// in Mbps but in kbit/s.
+int ice_set_queue_rate_limit(struct rte_eth_dev *dev,
+			   uint16_t queue_idx, uint16_t tx_rate)
+{
+	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+  struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	struct ice_port_info *pi;
+	enum ice_status status;
+  u8 tc;
+  uint32_t bw;
+
+  bw = 1000 * 1000 * tx_rate; // Gbit/s -> kbit/s
+
+	if (!hw || !hw->port_info)
+		return ICE_ERR_PARAM;
+
+	pi = hw->port_info;
+
+	struct ice_vsi *vsi = pf->main_vsi;
+  u16 vsi_handle = vsi->idx;
+
+  ice_for_each_traffic_class(tc) {
+    status = ice_cfg_q_bw_lmt(pi, vsi_handle, tc, queue_idx, ICE_MAX_BW, bw);
+    if (status != ICE_SUCCESS)
+      return -1;
+  }
+
+  return 0;
+}
+
 static const struct eth_dev_ops ice_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_start                    = ice_dev_start,
@@ -211,6 +246,7 @@ static const struct eth_dev_ops ice_eth_dev_ops = {
 	.rx_queue_release             = ice_dev_rx_queue_release,
 	.tx_queue_setup               = ice_tx_queue_setup,
 	.tx_queue_release             = ice_dev_tx_queue_release,
+	.set_queue_rate_limit = ice_set_queue_rate_limit,
 	.dev_infos_get                = ice_dev_info_get,
 	.dev_supported_ptypes_get     = ice_dev_supported_ptypes_get,
 	.link_update                  = ice_link_update,
