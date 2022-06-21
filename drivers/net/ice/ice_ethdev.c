@@ -120,6 +120,9 @@ static int ice_promisc_enable(struct rte_eth_dev *dev);
 static int ice_promisc_disable(struct rte_eth_dev *dev);
 static int ice_allmulti_enable(struct rte_eth_dev *dev);
 static int ice_allmulti_disable(struct rte_eth_dev *dev);
+static int ice_etype_filter_set(struct rte_eth_dev *dev,
+          uint16_t etype,
+          int on);
 static int ice_vlan_filter_set(struct rte_eth_dev *dev,
 			       uint16_t vlan_id,
 			       int on);
@@ -254,6 +257,7 @@ static const struct eth_dev_ops ice_eth_dev_ops = {
 	.mac_addr_set                 = ice_macaddr_set,
 	.mac_addr_add                 = ice_macaddr_add,
 	.mac_addr_remove              = ice_macaddr_remove,
+  .etype_filter_set             = ice_etype_filter_set,
 	.vlan_filter_set              = ice_vlan_filter_set,
 	.vlan_offload_set             = ice_vlan_offload_set,
 	.reta_update                  = ice_rss_reta_update,
@@ -4109,6 +4113,12 @@ ice_macaddr_remove(struct rte_eth_dev *dev, uint32_t index)
 		PMD_DRV_LOG(ERR, "Failed to remove MAC filter");
 		return;
 	}
+}
+
+static int
+ice_etype_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
+{
+  return 1337;
 }
 
 static int

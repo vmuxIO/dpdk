@@ -503,6 +503,11 @@ typedef int (*eth_burst_mode_get_t)(struct rte_eth_dev *dev,
 /** @internal Set MTU. */
 typedef int (*mtu_set_t)(struct rte_eth_dev *dev, uint16_t mtu);
 
+/** @internal Filtering of an ethertype by an Ethernet device. */
+typedef int (*etype_filter_set_t)(struct rte_eth_dev *dev,
+          uint16_t etype,
+          int on);
+
 /** @internal Filtering of a VLAN Tag Identifier by an Ethernet device. */
 typedef int (*vlan_filter_set_t)(struct rte_eth_dev *dev,
 				  uint16_t vlan_id,
@@ -1049,6 +1054,9 @@ struct eth_dev_ops {
 	 * handle
 	 */
 	eth_dev_ptypes_set_t dev_ptypes_set;
+  
+  /** Filter etype setup **/
+  etype_filter_set_t         etype_filter_set;
 
 	/** Filter VLAN Setup */
 	vlan_filter_set_t          vlan_filter_set;
