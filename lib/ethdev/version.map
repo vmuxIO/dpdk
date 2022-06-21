@@ -73,6 +73,7 @@ DPDK_22 {
 	rte_eth_dev_uc_hash_table_set;
 	rte_eth_dev_udp_tunnel_port_add;
 	rte_eth_dev_udp_tunnel_port_delete;
+	rte_eth_dev_etype_filter;
 	rte_eth_dev_vlan_filter;
 	rte_eth_find_next;
 	rte_eth_find_next_of;

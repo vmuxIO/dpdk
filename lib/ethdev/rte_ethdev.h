@@ -3488,6 +3488,26 @@ int rte_eth_dev_get_mtu(uint16_t port_id, uint16_t *mtu);
 int rte_eth_dev_set_mtu(uint16_t port_id, uint16_t mtu);
 
 /**
+ * Enable/Disable hardware filtering by an Ethernet device by ethertype. 
+ *
+ * @param port_id
+ *   The port identifier of the Ethernet device.
+ * @param etype
+ *   The ethertype whose filtering must be enabled or disabled.
+ * @param on
+ *   If > 0, enable VLAN filtering of VLAN packets tagged with *vlan_id*.
+ *   Otherwise, disable VLAN filtering of VLAN packets tagged with *vlan_id*.
+ * @return
+ *   - (0) if successful.
+ *   - (-ENOTSUP) if hardware-assisted VLAN filtering not configured.
+ *   - (-ENODEV) if *port_id* invalid.
+ *   - (-EIO) if device is removed.
+ *   - (-ENOSYS) if VLAN filtering on *port_id* disabled.
+ *   - (-EINVAL) if *vlan_id* > 4095.
+ */
+int rte_eth_dev_etype_filter(uint16_t port_id, uint16_t etype, int on);
+
+/**
  * Enable/Disable hardware filtering by an Ethernet device of received
  * VLAN packets tagged with a given VLAN Tag Identifier.
  *

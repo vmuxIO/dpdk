@@ -3756,6 +3756,42 @@ rte_eth_dev_set_mtu(uint16_t port_id, uint16_t mtu)
 }
 
 int
+rte_eth_dev_etype_filter(uint16_t port_id, uint16_t etype, int on)
+{
+	struct rte_eth_dev *dev;
+	int ret;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port_id, -ENODEV);
+	dev = &rte_eth_devices[port_id];
+
+	if (etype >= 65535) {
+		RTE_ETHDEV_LOG(ERR, "Port_id=%u invalid etype=%u > 4095\n",
+			port_id, etype);
+		return -EINVAL;
+	}
+	RTE_FUNC_PTR_OR_ERR_RET(*dev->dev_ops->etype_filter_set, -ENOTSUP);
+
+	ret = (*dev->dev_ops->etype_filter_set)(dev, etype, on);
+  // for now we dont need to track etype filters:
+	// if (ret == 0) {
+	// 	struct rte_vlan_filter_conf *vfc;
+	// 	int vidx;
+	// 	int vbit;
+
+	// 	vfc = &dev->data->vlan_filter_conf;
+	// 	vidx = vlan_id / 64;
+	// 	vbit = vlan_id % 64;
+
+	// 	if (on)
+	// 		vfc->ids[vidx] |= RTE_BIT64(vbit);
+	// 	else
+	// 		vfc->ids[vidx] &= ~RTE_BIT64(vbit);
+	// }
+
+	return eth_err(port_id, ret);
+}
+
+int
 rte_eth_dev_vlan_filter(uint16_t port_id, uint16_t vlan_id, int on)
 {
 	struct rte_eth_dev *dev;
