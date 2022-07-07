@@ -3755,6 +3755,7 @@ rte_eth_dev_set_mtu(uint16_t port_id, uint16_t mtu)
 	return eth_err(port_id, ret);
 }
 
+// int on: repurposed to target queue id
 int
 rte_eth_dev_etype_filter(uint16_t port_id, uint16_t etype, int on)
 {
@@ -3765,13 +3766,76 @@ rte_eth_dev_etype_filter(uint16_t port_id, uint16_t etype, int on)
 	dev = &rte_eth_devices[port_id];
 
 	if (etype >= 65535) {
-		RTE_ETHDEV_LOG(ERR, "Port_id=%u invalid etype=%u > 4095\n",
+		RTE_ETHDEV_LOG(ERR, "Port_id=%u invalid etype=%u\n",
 			port_id, etype);
 		return -EINVAL;
 	}
 	RTE_FUNC_PTR_OR_ERR_RET(*dev->dev_ops->etype_filter_set, -ENOTSUP);
 
-	ret = (*dev->dev_ops->etype_filter_set)(dev, etype, on);
+  // call driver implementation of this function (not needed as of now)
+	/*ret = (*dev->dev_ops->etype_filter_set)(dev, etype, on);*/
+
+  /*struct rte_flow_ops *flow_ops;*/
+  struct rte_flow_error flow_error;
+  struct rte_flow *flow;
+  struct rte_flow_attr flow_attr;
+  struct rte_flow_item flow_item[2];
+  struct rte_flow_item_eth flow_item_eth, flow_item_mask;
+  struct rte_flow_action flow_action[2];
+  struct rte_flow_action_queue flow_action_queue;
+
+  //flow_ops = rte_flow_ops_get(port_id, &flow_error);
+  //if (flow_ops <= 0) {
+	//	RTE_ETHDEV_LOG(ERR, "Flow for Port_id=%u can't be created %d message: %s\n",
+  //          port_id,
+  //          error.type,
+  //          error.message ? error.message : "(no stated reason)");
+	//	return -EINVAL;
+  //}
+  flow_attr.group = 0;
+  flow_attr.priority = 0;
+  flow_attr.ingress = 1;
+  flow_attr.egress = 0;
+  flow_attr.transfer = 0;
+
+  flow_item_eth.has_vlan = 0;
+  memset(&flow_item_eth.dst, 0, RTE_ETHER_ADDR_LEN); // TODO does zero match all or do we need to register for every mac? I think it is ignored through setting the mask to 0.
+  memset(&flow_item_eth.src, 0, RTE_ETHER_ADDR_LEN);
+  flow_item_eth.type = etype;
+
+  flow_item_mask.has_vlan = 0;
+  memset(&flow_item_mask.dst, 0, RTE_ETHER_ADDR_LEN);
+  memset(&flow_item_mask.src, 0, RTE_ETHER_ADDR_LEN);
+  flow_item_mask.type = 1;
+
+  flow_item[0].type = RTE_FLOW_ITEM_TYPE_ETH; // Matches an Ethernet header
+  flow_item[0].spec = &flow_item_eth;
+  flow_item[0].last = NULL; // ??? set to null by examples; This probably sets no range
+  flow_item[0].mask = &flow_item_mask;
+
+  flow_item[1].type = RTE_FLOW_ITEM_TYPE_END; // EOF
+
+  flow_action_queue.index = on; // uint16 index TODO
+  flow_action[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+  flow_action[0].conf = &flow_action_queue;
+  flow_action[1].type = RTE_FLOW_ACTION_TYPE_END; // EOF
+
+  // TODO rte_flow_create is already exported directly and usable (not sure if imported here though)
+  flow = rte_flow_create(port_id, &flow_attr, flow_item, flow_action, &flow_error);
+  if (flow == NULL) {
+		RTE_ETHDEV_LOG(ERR, "Flow for Port_id=%u can't be created %d message: %s\n",
+            port_id,
+            flow_error.type,
+            flow_error.message ? flow_error.message : "(no stated reason)");
+		return -EINVAL;
+  } else {
+	  RTE_ETHDEV_LOG(ERR, "Flow for Port_id=%u Queue_id=%u etype %u created.\n",
+        port_id,
+        on,
+        etype);
+    return 0;
+  }
+  /*flow = (*flow_ops->create)(dev, &flow_attr, flow_item, flow_action, &flow_error);*/
   // for now we dont need to track etype filters:
 	// if (ret == 0) {
 	// 	struct rte_vlan_filter_conf *vfc;

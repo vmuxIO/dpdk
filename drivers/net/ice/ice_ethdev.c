@@ -920,7 +920,7 @@ ice_find_mac_filter(struct ice_vsi *vsi, struct rte_ether_addr *macaddr)
 
 static int
 ice_add_mac_filter(struct ice_vsi *vsi, struct rte_ether_addr *mac_addr)
-{
+{ // MYMARK mac filter
 	struct ice_fltr_list_entry *m_list_itr = NULL;
 	struct ice_mac_filter *f;
 	struct LIST_HEAD_TYPE list_head;
@@ -1045,7 +1045,7 @@ ice_find_vlan_filter(struct ice_vsi *vsi, struct ice_vlan *vlan)
 
 static int
 ice_add_vlan_filter(struct ice_vsi *vsi, struct ice_vlan *vlan)
-{
+{ // MYMARK vlan filter
 	struct ice_fltr_list_entry *v_list_itr = NULL;
 	struct ice_vlan_filter *f;
 	struct LIST_HEAD_TYPE list_head;
@@ -4118,7 +4118,33 @@ ice_macaddr_remove(struct rte_eth_dev *dev, uint32_t index)
 static int
 ice_etype_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 {
-  return 1337;
+	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	struct ice_vlan vlan = ICE_VLAN(RTE_ETHER_TYPE_VLAN, vlan_id);
+	struct ice_vsi *vsi = pf->main_vsi;
+	int ret;
+	
+  PMD_INIT_FUNC_TRACE();
+
+	/**
+	 * Vlan 0 is the generic filter for untagged packets
+   * and can't be removed or added by user. Something similar should probably
+   * also apply to etype.
+	 */
+	if (vlan_id == 0)
+		return 0;
+
+	if (on) {
+		ret = ice_add_vlan_filter(vsi, &vlan);
+    /*flow_ops = rte_flow_ops_get(uint16 portid, &flow_error);*/
+		if (ret < 0) {
+			PMD_DRV_LOG(ERR, "Failed to add vlan filter");
+			return -EINVAL;
+		}
+	} else {
+    // TODO
+  }
+
+  return 0;
 }
 
 static int
@@ -5542,12 +5568,14 @@ ice_dev_udp_tunnel_port_del(struct rte_eth_dev *dev,
 }
 
 static int
-ice_timesync_enable(struct rte_eth_dev *dev)
+ice_timesync_enable(struct rte_eth_dev *dev) // MYMARK 1
 {
 	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	struct ice_adapter *ad =
 			ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	int ret;
+
+  PMD_DRV_LOG(ERR, "ts ena %d", hw->pf_id);
 
 	if (dev->data->dev_started && !(dev->data->dev_conf.rxmode.offloads &
 	    RTE_ETH_RX_OFFLOAD_TIMESTAMP)) {
@@ -5568,7 +5596,11 @@ ice_timesync_enable(struct rte_eth_dev *dev)
 				"Failed to write PHC increment time value");
 			return -1;
 		}
-	}
+	} else {
+			PMD_DRV_LOG(ERR,
+				"src tmp not owned?!");
+  }
+
 
 	/* Initialize cycle counters for system time/RX/TX timestamp */
 	memset(&ad->systime_tc, 0, sizeof(struct rte_timecounter));
@@ -5637,6 +5669,7 @@ ice_timesync_read_tx_timestamp(struct rte_eth_dev *dev,
 	ns = rte_timecounter_update(&ad->tx_tstamp_tc, ts_ns);
 	*timestamp = rte_ns_to_timespec(ns);
 
+  /*ice_clear_phy_tstamp(hw, lport, 0); // no worky*/
 	return 0;
 }
 
