@@ -8,6 +8,7 @@ sources = files(
         'ice_acl_filter.c',
         'ice_ddp_package.c',
         'ice_ethdev.c',
+        'vdpdk.c',
         'ice_fdir_filter.c',
         'ice_generic_flow.c',
         'ice_hash.c',
