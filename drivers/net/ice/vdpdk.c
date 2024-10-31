@@ -2120,7 +2120,6 @@ ice_dev_init(struct rte_eth_dev *dev)
 	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
 		char c = dkbuf[i];
 		rte_write8(c, (char *)dkaddr + i);
-		dkbuf[i] = c;
 		if (c == '\0') break;
 	}
 
