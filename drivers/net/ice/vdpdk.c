@@ -2093,6 +2093,22 @@ ice_dev_init(struct rte_eth_dev *dev)
 	pci_dev = RTE_DEV_TO_PCI(dev->device);
 	intr_handle = pci_dev->intr_handle;
 
+	void *dkaddr = pci_dev->mem_resource[0].addr;
+	PMD_INIT_LOG(INFO, "VDPDK ADDRESS %p", dkaddr);
+	char dkbuf[100] = {0};
+	uint8_t dku8 = rte_read8(dkaddr);
+	memcpy(dkbuf, &dku8, 1);
+	PMD_INIT_LOG(INFO, "read8: %x (%s)", dku8, dkbuf);
+	uint16_t dku16 = rte_read16(dkaddr);
+	memcpy(dkbuf, &dku16, 2);
+	PMD_INIT_LOG(INFO, "read16: %x (%s)", dku16, dkbuf);
+	uint32_t dku32 = rte_read32(dkaddr);
+	memcpy(dkbuf, &dku32, 4);
+	PMD_INIT_LOG(INFO, "read32: %x (%s)", dku32, dkbuf);
+	uint64_t dku64 = rte_read64(dkaddr);
+	memcpy(dkbuf, &dku64, 8);
+	PMD_INIT_LOG(INFO, "read64: %x (%s)", dku8, dkbuf);
+
 	pf->adapter = ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	pf->dev_data = dev->data;
 	hw->back = pf->adapter;
