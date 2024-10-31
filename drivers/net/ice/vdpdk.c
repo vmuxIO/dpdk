@@ -2112,6 +2112,8 @@ ice_dev_init(struct rte_eth_dev *dev)
 
 	ice_init_controlq_parameter(hw);
 
+	__builtin_dump_struct(hw, printf);
+
 	ret = ice_init_hw(hw);
 	if (ret) {
 		PMD_INIT_LOG(ERR, "Failed to initialize HW");
