@@ -2107,7 +2107,7 @@ ice_dev_init(struct rte_eth_dev *dev)
 	PMD_INIT_LOG(ERR, "read32: %x (%s)", dku32, dkbuf);
 	uint64_t dku64 = rte_read64(dkaddr);
 	memcpy(dkbuf, &dku64, 8);
-	PMD_INIT_LOG(ERR, "read64: %x (%s)", dku8, dkbuf);
+	PMD_INIT_LOG(ERR, "read64: %lx (%s)", dku64, dkbuf);
 
 	pf->adapter = ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	pf->dev_data = dev->data;
