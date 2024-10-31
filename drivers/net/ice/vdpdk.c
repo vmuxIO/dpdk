@@ -2109,12 +2109,20 @@ ice_dev_init(struct rte_eth_dev *dev)
 	memcpy(dkbuf, &dku64, 8);
 	PMD_INIT_LOG(ERR, "read64: %lx (%s)", dku64, dkbuf);
 
-	for (size_t i = 0; i < sizeof(dkbuf) - i; i++) {
+	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
 		char c = rte_read8((char *)dkaddr + i);
 		dkbuf[i] = c;
 		if (c == '\0') break;
 	}
 	PMD_INIT_LOG(ERR, "read string: %s", dkbuf);
+
+	strcpy(dkbuf, "Greetings from dpdk");
+	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
+		char c = dkbuf[i];
+		rte_write8(c, (char *)dkaddr + i);
+		dkbuf[i] = c;
+		if (c == '\0') break;
+	}
 
 	pf->adapter = ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	pf->dev_data = dev->data;
