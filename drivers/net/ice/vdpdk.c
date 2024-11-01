@@ -2102,8 +2102,7 @@ ice_dev_init(struct rte_eth_dev *dev)
 		if (c == '\0') break;
 	}
 
-	PMD_INIT_LOG(ERR, "TODO...");
-	return -EINVAL;
+	return 0;
 
 // 	ice_init_controlq_parameter(hw);
 
