@@ -182,6 +182,14 @@ static int ice_timesync_write_time(struct rte_eth_dev *dev,
 static int ice_timesync_disable(struct rte_eth_dev *dev);
 static const uint32_t *ice_buffer_split_supported_hdr_ptypes_get(struct rte_eth_dev *dev);
 
+static int
+vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
+		   uint16_t queue_idx,
+		   uint16_t nb_desc,
+		   unsigned int socket_id,
+		   const struct rte_eth_rxconf *rx_conf,
+		   struct rte_mempool *mp);
+
 static const struct rte_pci_id pci_id_ice_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
 	{ .vendor_id = 0, /* sentinel */ },
@@ -271,6 +279,7 @@ static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_infos_get                = ice_dev_info_get,
+	.rx_queue_setup               = vdpdk_rx_queue_setup,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -6289,6 +6298,17 @@ ice_buffer_split_supported_hdr_ptypes_get(struct rte_eth_dev *dev __rte_unused)
 
 	return ptypes;
 }
+
+static int
+vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
+		   uint16_t queue_idx,
+		   uint16_t nb_desc,
+		   unsigned int socket_id,
+		   const struct rte_eth_rxconf *rx_conf,
+		   struct rte_mempool *mp) {
+	return 0;
+}
+
 
 static int
 ice_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
