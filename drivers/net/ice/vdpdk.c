@@ -199,7 +199,7 @@ ice_tm_ops_get(struct rte_eth_dev *dev __rte_unused,
 	return 0;
 }
 
-static const struct eth_dev_ops ice_eth_dev_ops = {
+static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_start                    = ice_dev_start,
 	.dev_stop                     = ice_dev_stop,
@@ -266,6 +266,10 @@ static const struct eth_dev_ops ice_eth_dev_ops = {
 	.timesync_disable             = ice_timesync_disable,
 	.tm_ops_get                   = ice_tm_ops_get,
 	.buffer_split_supported_hdr_ptypes_get = ice_buffer_split_supported_hdr_ptypes_get,
+};
+
+static const struct eth_dev_ops vdpdk_eth_dev_ops = {
+	NULL,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -2055,43 +2059,18 @@ ice_get_supported_rxdid(struct ice_hw *hw)
 static int
 ice_dev_init(struct rte_eth_dev *dev)
 {
-	struct rte_pci_device *pci_dev;
-	struct rte_intr_handle *intr_handle;
-	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
-	struct ice_adapter *ad =
-		ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
-	struct ice_vsi *vsi;
-	int ret;
-#ifndef RTE_EXEC_ENV_WINDOWS
-	off_t pos;
-	uint32_t dsn_low, dsn_high;
-	uint64_t dsn;
-	bool use_dsn;
-#endif
+	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	dev->dev_ops = &vdpdk_eth_dev_ops;
+	// dev->rx_queue_count = ice_rx_queue_count;
+	// dev->rx_descriptor_status = ice_rx_descriptor_status;
+	// dev->tx_descriptor_status = ice_tx_descriptor_status;
+	// dev->rx_pkt_burst = ice_recv_pkts;
+	// dev->tx_pkt_burst = ice_xmit_pkts;
+	// dev->tx_pkt_prepare = ice_prep_pkts;
 
-	dev->dev_ops = &ice_eth_dev_ops;
-	dev->rx_queue_count = ice_rx_queue_count;
-	dev->rx_descriptor_status = ice_rx_descriptor_status;
-	dev->tx_descriptor_status = ice_tx_descriptor_status;
-	dev->rx_pkt_burst = ice_recv_pkts;
-	dev->tx_pkt_burst = ice_xmit_pkts;
-	dev->tx_pkt_prepare = ice_prep_pkts;
-
-	/* for secondary processes, we don't initialise any further as primary
-	 * has already done this work.
-	 */
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY) {
-		ice_set_rx_function(dev);
-		ice_set_tx_function(dev);
-		return 0;
+		return -ENOTSUP;
 	}
-
-	dev->data->dev_flags |= RTE_ETH_DEV_AUTOFILL_QUEUE_XSTATS;
-
-	ice_set_default_ptype_table(dev);
-	pci_dev = RTE_DEV_TO_PCI(dev->device);
-	intr_handle = pci_dev->intr_handle;
 
 	void *dkaddr = pci_dev->mem_resource[0].addr;
 	PMD_INIT_LOG(ERR, "VDPDK ADDRESS %p", dkaddr);
@@ -2123,180 +2102,166 @@ ice_dev_init(struct rte_eth_dev *dev)
 		if (c == '\0') break;
 	}
 
-	pf->adapter = ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
-	pf->dev_data = dev->data;
-	hw->back = pf->adapter;
-	hw->hw_addr = (uint8_t *)pci_dev->mem_resource[0].addr;
-	hw->vendor_id = pci_dev->id.vendor_id;
-	hw->device_id = pci_dev->id.device_id;
-	hw->subsystem_vendor_id = pci_dev->id.subsystem_vendor_id;
-	hw->subsystem_device_id = pci_dev->id.subsystem_device_id;
-	hw->bus.device = pci_dev->addr.devid;
-	hw->bus.func = pci_dev->addr.function;
+	PMD_INIT_LOG(ERR, "TODO...");
+	return -EINVAL;
 
-	ret = ice_parse_devargs(dev);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to parse devargs");
-		return -EINVAL;
-	}
+// 	ice_init_controlq_parameter(hw);
 
-	ice_init_controlq_parameter(hw);
+// 	ret = ice_init_hw(hw);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to initialize HW");
+// 		return -EINVAL;
+// 	}
 
-	ret = ice_init_hw(hw);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to initialize HW");
-		return -EINVAL;
-	}
+// #ifndef RTE_EXEC_ENV_WINDOWS
+// 	use_dsn = false;
+// 	dsn = 0;
+// 	pos = rte_pci_find_ext_capability(pci_dev, RTE_PCI_EXT_CAP_ID_DSN);
+// 	if (pos) {
+// 		if (rte_pci_read_config(pci_dev, &dsn_low, 4, pos + 4) < 0 ||
+// 				rte_pci_read_config(pci_dev, &dsn_high, 4, pos + 8) < 0) {
+// 			PMD_INIT_LOG(ERR, "Failed to read pci config space\n");
+// 		} else {
+// 			use_dsn = true;
+// 			dsn = (uint64_t)dsn_high << 32 | dsn_low;
+// 		}
+// 	} else {
+// 		PMD_INIT_LOG(ERR, "Failed to read device serial number\n");
+// 	}
 
-#ifndef RTE_EXEC_ENV_WINDOWS
-	use_dsn = false;
-	dsn = 0;
-	pos = rte_pci_find_ext_capability(pci_dev, RTE_PCI_EXT_CAP_ID_DSN);
-	if (pos) {
-		if (rte_pci_read_config(pci_dev, &dsn_low, 4, pos + 4) < 0 ||
-				rte_pci_read_config(pci_dev, &dsn_high, 4, pos + 8) < 0) {
-			PMD_INIT_LOG(ERR, "Failed to read pci config space\n");
-		} else {
-			use_dsn = true;
-			dsn = (uint64_t)dsn_high << 32 | dsn_low;
-		}
-	} else {
-		PMD_INIT_LOG(ERR, "Failed to read device serial number\n");
-	}
+// 	ret = ice_load_pkg(pf->adapter, use_dsn, dsn);
+// 	if (ret == 0) {
+// 		ret = ice_init_hw_tbls(hw);
+// 		if (ret) {
+// 			PMD_INIT_LOG(ERR, "ice_init_hw_tbls failed: %d\n", ret);
+// 			rte_free(hw->pkg_copy);
+// 		}
+// 	}
 
-	ret = ice_load_pkg(pf->adapter, use_dsn, dsn);
-	if (ret == 0) {
-		ret = ice_init_hw_tbls(hw);
-		if (ret) {
-			PMD_INIT_LOG(ERR, "ice_init_hw_tbls failed: %d\n", ret);
-			rte_free(hw->pkg_copy);
-		}
-	}
+// 	if (ret) {
+// 		if (ad->devargs.safe_mode_support == 0) {
+// 			PMD_INIT_LOG(ERR, "Failed to load the DDP package,"
+// 					"Use safe-mode-support=1 to enter Safe Mode");
+// 			goto err_init_fw;
+// 		}
 
-	if (ret) {
-		if (ad->devargs.safe_mode_support == 0) {
-			PMD_INIT_LOG(ERR, "Failed to load the DDP package,"
-					"Use safe-mode-support=1 to enter Safe Mode");
-			goto err_init_fw;
-		}
+// 		PMD_INIT_LOG(WARNING, "Failed to load the DDP package,"
+// 					"Entering Safe Mode");
+// 		ad->is_safe_mode = 1;
+// 	}
+// #endif
 
-		PMD_INIT_LOG(WARNING, "Failed to load the DDP package,"
-					"Entering Safe Mode");
-		ad->is_safe_mode = 1;
-	}
-#endif
+// 	PMD_INIT_LOG(INFO, "FW %d.%d.%05d API %d.%d",
+// 		     hw->fw_maj_ver, hw->fw_min_ver, hw->fw_build,
+// 		     hw->api_maj_ver, hw->api_min_ver);
 
-	PMD_INIT_LOG(INFO, "FW %d.%d.%05d API %d.%d",
-		     hw->fw_maj_ver, hw->fw_min_ver, hw->fw_build,
-		     hw->api_maj_ver, hw->api_min_ver);
+// 	ice_pf_sw_init(dev);
+// 	ret = ice_init_mac_address(dev);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to initialize mac address");
+// 		goto err_init_mac;
+// 	}
 
-	ice_pf_sw_init(dev);
-	ret = ice_init_mac_address(dev);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to initialize mac address");
-		goto err_init_mac;
-	}
+// 	ret = ice_res_pool_init(&pf->msix_pool, 1,
+// 				hw->func_caps.common_cap.num_msix_vectors - 1);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to init MSIX pool");
+// 		goto err_msix_pool_init;
+// 	}
 
-	ret = ice_res_pool_init(&pf->msix_pool, 1,
-				hw->func_caps.common_cap.num_msix_vectors - 1);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to init MSIX pool");
-		goto err_msix_pool_init;
-	}
+// 	ret = ice_pf_setup(pf);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to setup PF");
+// 		goto err_pf_setup;
+// 	}
 
-	ret = ice_pf_setup(pf);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to setup PF");
-		goto err_pf_setup;
-	}
+// 	ret = ice_send_driver_ver(hw);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to send driver version");
+// 		goto err_pf_setup;
+// 	}
 
-	ret = ice_send_driver_ver(hw);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to send driver version");
-		goto err_pf_setup;
-	}
+// 	vsi = pf->main_vsi;
 
-	vsi = pf->main_vsi;
+// 	ret = ice_aq_stop_lldp(hw, true, false, NULL);
+// 	if (ret != ICE_SUCCESS)
+// 		PMD_INIT_LOG(DEBUG, "lldp has already stopped\n");
+// 	ret = ice_init_dcb(hw, true);
+// 	if (ret != ICE_SUCCESS)
+// 		PMD_INIT_LOG(DEBUG, "Failed to init DCB\n");
+// 	/* Forward LLDP packets to default VSI */
+// 	ret = ice_vsi_config_sw_lldp(vsi, true);
+// 	if (ret != ICE_SUCCESS)
+// 		PMD_INIT_LOG(DEBUG, "Failed to cfg lldp\n");
+// 	/* register callback func to eal lib */
+// 	rte_intr_callback_register(intr_handle,
+// 				   ice_interrupt_handler, dev);
 
-	ret = ice_aq_stop_lldp(hw, true, false, NULL);
-	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "lldp has already stopped\n");
-	ret = ice_init_dcb(hw, true);
-	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "Failed to init DCB\n");
-	/* Forward LLDP packets to default VSI */
-	ret = ice_vsi_config_sw_lldp(vsi, true);
-	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "Failed to cfg lldp\n");
-	/* register callback func to eal lib */
-	rte_intr_callback_register(intr_handle,
-				   ice_interrupt_handler, dev);
+// 	ice_pf_enable_irq0(hw);
 
-	ice_pf_enable_irq0(hw);
+// 	/* enable uio intr after callback register */
+// 	rte_intr_enable(intr_handle);
 
-	/* enable uio intr after callback register */
-	rte_intr_enable(intr_handle);
+// 	/* get base queue pairs index  in the device */
+// 	ice_base_queue_get(pf);
 
-	/* get base queue pairs index  in the device */
-	ice_base_queue_get(pf);
+// 	/* Initialize RSS context for gtpu_eh */
+// 	ice_rss_ctx_init(pf);
 
-	/* Initialize RSS context for gtpu_eh */
-	ice_rss_ctx_init(pf);
+// 	/* Initialize TM configuration */
+// 	ice_tm_conf_init(dev);
 
-	/* Initialize TM configuration */
-	ice_tm_conf_init(dev);
+// 	if (ice_is_e810(hw))
+// 		hw->phy_cfg = ICE_PHY_E810;
+// 	else
+// 		hw->phy_cfg = ICE_PHY_E822;
 
-	if (ice_is_e810(hw))
-		hw->phy_cfg = ICE_PHY_E810;
-	else
-		hw->phy_cfg = ICE_PHY_E822;
+// 	if (hw->phy_cfg == ICE_PHY_E822) {
+// 		ret = ice_start_phy_timer_e822(hw, hw->pf_id, true);
+// 		if (ret)
+// 			PMD_INIT_LOG(ERR, "Failed to start phy timer\n");
+// 	}
 
-	if (hw->phy_cfg == ICE_PHY_E822) {
-		ret = ice_start_phy_timer_e822(hw, hw->pf_id, true);
-		if (ret)
-			PMD_INIT_LOG(ERR, "Failed to start phy timer\n");
-	}
+// 	if (!ad->is_safe_mode) {
+// 		ret = ice_flow_init(ad);
+// 		if (ret) {
+// 			PMD_INIT_LOG(ERR, "Failed to initialize flow");
+// 			goto err_flow_init;
+// 		}
+// 	}
 
-	if (!ad->is_safe_mode) {
-		ret = ice_flow_init(ad);
-		if (ret) {
-			PMD_INIT_LOG(ERR, "Failed to initialize flow");
-			goto err_flow_init;
-		}
-	}
+// 	ret = ice_reset_fxp_resource(hw);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Failed to reset fxp resource");
+// 		goto err_flow_init;
+// 	}
 
-	ret = ice_reset_fxp_resource(hw);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Failed to reset fxp resource");
-		goto err_flow_init;
-	}
+// 	pf->supported_rxdid = ice_get_supported_rxdid(hw);
 
-	pf->supported_rxdid = ice_get_supported_rxdid(hw);
+// 	/* reset all stats of the device, including pf and main vsi */
+// 	ice_stats_reset(dev);
 
-	/* reset all stats of the device, including pf and main vsi */
-	ice_stats_reset(dev);
+// 	return 0;
 
-	return 0;
+// err_flow_init:
+// 	ice_flow_uninit(ad);
+// 	rte_intr_disable(intr_handle);
+// 	ice_pf_disable_irq0(hw);
+// 	rte_intr_callback_unregister(intr_handle,
+// 				     ice_interrupt_handler, dev);
+// err_pf_setup:
+// 	ice_res_pool_destroy(&pf->msix_pool);
+// err_msix_pool_init:
+// 	rte_free(dev->data->mac_addrs);
+// 	dev->data->mac_addrs = NULL;
+// err_init_mac:
+// 	rte_free(pf->proto_xtr);
+// #ifndef RTE_EXEC_ENV_WINDOWS
+// err_init_fw:
+// #endif
+// 	ice_deinit_hw(hw);
 
-err_flow_init:
-	ice_flow_uninit(ad);
-	rte_intr_disable(intr_handle);
-	ice_pf_disable_irq0(hw);
-	rte_intr_callback_unregister(intr_handle,
-				     ice_interrupt_handler, dev);
-err_pf_setup:
-	ice_res_pool_destroy(&pf->msix_pool);
-err_msix_pool_init:
-	rte_free(dev->data->mac_addrs);
-	dev->data->mac_addrs = NULL;
-err_init_mac:
-	rte_free(pf->proto_xtr);
-#ifndef RTE_EXEC_ENV_WINDOWS
-err_init_fw:
-#endif
-	ice_deinit_hw(hw);
-
-	return ret;
+// 	return ret;
 }
 
 // int
@@ -2467,7 +2432,8 @@ ice_dev_close(struct rte_eth_dev *dev)
 static int
 ice_dev_uninit(struct rte_eth_dev *dev)
 {
-	ice_dev_close(dev);
+	// ice_dev_close(dev);
+	(void)dev;
 
 	return 0;
 }
@@ -6341,7 +6307,7 @@ ice_pci_remove(struct rte_pci_device *pci_dev)
 
 static struct rte_pci_driver rte_ice_pmd = {
 	.id_table = pci_id_ice_map,
-	.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC,
+	.drv_flags = RTE_PCI_DRV_NEED_MAPPING,
 	.probe = ice_pci_probe,
 	.remove = ice_pci_remove,
 };
