@@ -2073,27 +2073,27 @@ ice_dev_init(struct rte_eth_dev *dev)
 	}
 
 	void *dkaddr = pci_dev->mem_resource[0].addr;
-	PMD_INIT_LOG(ERR, "VDPDK ADDRESS %p", dkaddr);
+	PMD_INIT_LOG(NOTICE, "VDPDK ADDRESS %p", dkaddr);
 	char dkbuf[100] = {0};
 	uint8_t dku8 = rte_read8(dkaddr);
 	memcpy(dkbuf, &dku8, 1);
-	PMD_INIT_LOG(ERR, "read8: %x (%s)", dku8, dkbuf);
+	PMD_INIT_LOG(NOTICE, "read8: %x (%s)", dku8, dkbuf);
 	uint16_t dku16 = rte_read16(dkaddr);
 	memcpy(dkbuf, &dku16, 2);
-	PMD_INIT_LOG(ERR, "read16: %x (%s)", dku16, dkbuf);
+	PMD_INIT_LOG(NOTICE, "read16: %x (%s)", dku16, dkbuf);
 	uint32_t dku32 = rte_read32(dkaddr);
 	memcpy(dkbuf, &dku32, 4);
-	PMD_INIT_LOG(ERR, "read32: %x (%s)", dku32, dkbuf);
+	PMD_INIT_LOG(NOTICE, "read32: %x (%s)", dku32, dkbuf);
 	uint64_t dku64 = rte_read64(dkaddr);
 	memcpy(dkbuf, &dku64, 8);
-	PMD_INIT_LOG(ERR, "read64: %lx (%s)", dku64, dkbuf);
+	PMD_INIT_LOG(NOTICE, "read64: %lx (%s)", dku64, dkbuf);
 
 	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
 		char c = rte_read8((char *)dkaddr + i);
 		dkbuf[i] = c;
 		if (c == '\0') break;
 	}
-	PMD_INIT_LOG(ERR, "read string: %s", dkbuf);
+	PMD_INIT_LOG(NOTICE, "read string: %s", dkbuf);
 
 	strcpy(dkbuf, "Greetings from dpdk");
 	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
