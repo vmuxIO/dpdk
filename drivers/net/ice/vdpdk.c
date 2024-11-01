@@ -270,6 +270,7 @@ static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 
 static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
+	.dev_infos_get                = ice_dev_info_get,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -3607,130 +3608,130 @@ ice_dev_reset(struct rte_eth_dev *dev)
 static int
 ice_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 {
-	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
-	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	struct ice_vsi *vsi = pf->main_vsi;
-	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
-	bool is_safe_mode = pf->adapter->is_safe_mode;
-	u64 phy_type_low;
-	u64 phy_type_high;
+	// struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	// struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	// struct ice_vsi *vsi = pf->main_vsi;
+	// struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	// bool is_safe_mode = pf->adapter->is_safe_mode;
+	// u64 phy_type_low;
+	// u64 phy_type_high;
 
 	dev_info->min_rx_bufsize = ICE_BUF_SIZE_MIN;
 	dev_info->max_rx_pktlen = ICE_FRAME_SIZE_MAX;
-	dev_info->max_rx_queues = vsi->nb_qps;
-	dev_info->max_tx_queues = vsi->nb_qps;
-	dev_info->max_mac_addrs = vsi->max_macaddrs;
-	dev_info->max_vfs = pci_dev->max_vfs;
-	dev_info->max_mtu = dev_info->max_rx_pktlen - ICE_ETH_OVERHEAD;
-	dev_info->min_mtu = RTE_ETHER_MIN_MTU;
+	dev_info->max_rx_queues = 1;
+	dev_info->max_tx_queues = 1;
+	// dev_info->max_mac_addrs = vsi->max_macaddrs;
+	// dev_info->max_vfs = pci_dev->max_vfs;
+	// dev_info->max_mtu = dev_info->max_rx_pktlen - ICE_ETH_OVERHEAD;
+	// dev_info->min_mtu = RTE_ETHER_MIN_MTU;
 
-	dev_info->rx_offload_capa =
-		RTE_ETH_RX_OFFLOAD_VLAN_STRIP |
-		RTE_ETH_RX_OFFLOAD_KEEP_CRC |
-		RTE_ETH_RX_OFFLOAD_SCATTER |
-		RTE_ETH_RX_OFFLOAD_VLAN_FILTER;
-	dev_info->tx_offload_capa =
-		RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
-		RTE_ETH_TX_OFFLOAD_TCP_TSO |
-		RTE_ETH_TX_OFFLOAD_MULTI_SEGS |
-		RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
-	dev_info->flow_type_rss_offloads = 0;
+	// dev_info->rx_offload_capa =
+	// 	RTE_ETH_RX_OFFLOAD_VLAN_STRIP |
+	// 	RTE_ETH_RX_OFFLOAD_KEEP_CRC |
+	// 	RTE_ETH_RX_OFFLOAD_SCATTER |
+	// 	RTE_ETH_RX_OFFLOAD_VLAN_FILTER;
+	// dev_info->tx_offload_capa =
+	// 	RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
+	// 	RTE_ETH_TX_OFFLOAD_TCP_TSO |
+	// 	RTE_ETH_TX_OFFLOAD_MULTI_SEGS |
+	// 	RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+	// dev_info->flow_type_rss_offloads = 0;
 
-	if (!is_safe_mode) {
-		dev_info->rx_offload_capa |=
-			RTE_ETH_RX_OFFLOAD_IPV4_CKSUM |
-			RTE_ETH_RX_OFFLOAD_UDP_CKSUM |
-			RTE_ETH_RX_OFFLOAD_TCP_CKSUM |
-			RTE_ETH_RX_OFFLOAD_QINQ_STRIP |
-			RTE_ETH_RX_OFFLOAD_OUTER_IPV4_CKSUM |
-			RTE_ETH_RX_OFFLOAD_VLAN_EXTEND |
-			RTE_ETH_RX_OFFLOAD_RSS_HASH |
-			RTE_ETH_RX_OFFLOAD_TIMESTAMP |
-			RTE_ETH_RX_OFFLOAD_BUFFER_SPLIT;
-		dev_info->tx_offload_capa |=
-			RTE_ETH_TX_OFFLOAD_QINQ_INSERT |
-			RTE_ETH_TX_OFFLOAD_IPV4_CKSUM |
-			RTE_ETH_TX_OFFLOAD_UDP_CKSUM |
-			RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
-			RTE_ETH_TX_OFFLOAD_SCTP_CKSUM |
-			RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM |
-			RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM;
-		dev_info->flow_type_rss_offloads |= ICE_RSS_OFFLOAD_ALL;
-	}
+	// if (!is_safe_mode) {
+	// 	dev_info->rx_offload_capa |=
+	// 		RTE_ETH_RX_OFFLOAD_IPV4_CKSUM |
+	// 		RTE_ETH_RX_OFFLOAD_UDP_CKSUM |
+	// 		RTE_ETH_RX_OFFLOAD_TCP_CKSUM |
+	// 		RTE_ETH_RX_OFFLOAD_QINQ_STRIP |
+	// 		RTE_ETH_RX_OFFLOAD_OUTER_IPV4_CKSUM |
+	// 		RTE_ETH_RX_OFFLOAD_VLAN_EXTEND |
+	// 		RTE_ETH_RX_OFFLOAD_RSS_HASH |
+	// 		RTE_ETH_RX_OFFLOAD_TIMESTAMP |
+	// 		RTE_ETH_RX_OFFLOAD_BUFFER_SPLIT;
+	// 	dev_info->tx_offload_capa |=
+	// 		RTE_ETH_TX_OFFLOAD_QINQ_INSERT |
+	// 		RTE_ETH_TX_OFFLOAD_IPV4_CKSUM |
+	// 		RTE_ETH_TX_OFFLOAD_UDP_CKSUM |
+	// 		RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
+	// 		RTE_ETH_TX_OFFLOAD_SCTP_CKSUM |
+	// 		RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM |
+	// 		RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM;
+	// 	dev_info->flow_type_rss_offloads |= ICE_RSS_OFFLOAD_ALL;
+	// }
 
-	dev_info->rx_queue_offload_capa = RTE_ETH_RX_OFFLOAD_BUFFER_SPLIT;
-	dev_info->tx_queue_offload_capa = RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+	// dev_info->rx_queue_offload_capa = RTE_ETH_RX_OFFLOAD_BUFFER_SPLIT;
+	// dev_info->tx_queue_offload_capa = RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
-	dev_info->reta_size = pf->hash_lut_size;
-	dev_info->hash_key_size = (VSIQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t);
+	// dev_info->reta_size = pf->hash_lut_size;
+	// dev_info->hash_key_size = (VSIQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t);
 
-	dev_info->default_rxconf = (struct rte_eth_rxconf) {
-		.rx_thresh = {
-			.pthresh = ICE_DEFAULT_RX_PTHRESH,
-			.hthresh = ICE_DEFAULT_RX_HTHRESH,
-			.wthresh = ICE_DEFAULT_RX_WTHRESH,
-		},
-		.rx_free_thresh = ICE_DEFAULT_RX_FREE_THRESH,
-		.rx_drop_en = 0,
-		.offloads = 0,
-	};
+	// dev_info->default_rxconf = (struct rte_eth_rxconf) {
+	// 	.rx_thresh = {
+	// 		.pthresh = ICE_DEFAULT_RX_PTHRESH,
+	// 		.hthresh = ICE_DEFAULT_RX_HTHRESH,
+	// 		.wthresh = ICE_DEFAULT_RX_WTHRESH,
+	// 	},
+	// 	.rx_free_thresh = ICE_DEFAULT_RX_FREE_THRESH,
+	// 	.rx_drop_en = 0,
+	// 	.offloads = 0,
+	// };
 
-	dev_info->default_txconf = (struct rte_eth_txconf) {
-		.tx_thresh = {
-			.pthresh = ICE_DEFAULT_TX_PTHRESH,
-			.hthresh = ICE_DEFAULT_TX_HTHRESH,
-			.wthresh = ICE_DEFAULT_TX_WTHRESH,
-		},
-		.tx_free_thresh = ICE_DEFAULT_TX_FREE_THRESH,
-		.tx_rs_thresh = ICE_DEFAULT_TX_RSBIT_THRESH,
-		.offloads = 0,
-	};
+	// dev_info->default_txconf = (struct rte_eth_txconf) {
+	// 	.tx_thresh = {
+	// 		.pthresh = ICE_DEFAULT_TX_PTHRESH,
+	// 		.hthresh = ICE_DEFAULT_TX_HTHRESH,
+	// 		.wthresh = ICE_DEFAULT_TX_WTHRESH,
+	// 	},
+	// 	.tx_free_thresh = ICE_DEFAULT_TX_FREE_THRESH,
+	// 	.tx_rs_thresh = ICE_DEFAULT_TX_RSBIT_THRESH,
+	// 	.offloads = 0,
+	// };
 
-	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
-		.nb_max = ICE_MAX_RING_DESC,
-		.nb_min = ICE_MIN_RING_DESC,
-		.nb_align = ICE_ALIGN_RING_DESC,
-	};
+	// dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
+	// 	.nb_max = ICE_MAX_RING_DESC,
+	// 	.nb_min = ICE_MIN_RING_DESC,
+	// 	.nb_align = ICE_ALIGN_RING_DESC,
+	// };
 
-	dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
-		.nb_max = ICE_MAX_RING_DESC,
-		.nb_min = ICE_MIN_RING_DESC,
-		.nb_align = ICE_ALIGN_RING_DESC,
-	};
+	// dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
+	// 	.nb_max = ICE_MAX_RING_DESC,
+	// 	.nb_min = ICE_MIN_RING_DESC,
+	// 	.nb_align = ICE_ALIGN_RING_DESC,
+	// };
 
-	dev_info->speed_capa = RTE_ETH_LINK_SPEED_10M |
-			       RTE_ETH_LINK_SPEED_100M |
-			       RTE_ETH_LINK_SPEED_1G |
-			       RTE_ETH_LINK_SPEED_2_5G |
-			       RTE_ETH_LINK_SPEED_5G |
-			       RTE_ETH_LINK_SPEED_10G |
-			       RTE_ETH_LINK_SPEED_20G |
-			       RTE_ETH_LINK_SPEED_25G;
+	// dev_info->speed_capa = RTE_ETH_LINK_SPEED_10M |
+	// 		       RTE_ETH_LINK_SPEED_100M |
+	// 		       RTE_ETH_LINK_SPEED_1G |
+	// 		       RTE_ETH_LINK_SPEED_2_5G |
+	// 		       RTE_ETH_LINK_SPEED_5G |
+	// 		       RTE_ETH_LINK_SPEED_10G |
+	// 		       RTE_ETH_LINK_SPEED_20G |
+	// 		       RTE_ETH_LINK_SPEED_25G;
 
-	phy_type_low = hw->port_info->phy.phy_type_low;
-	phy_type_high = hw->port_info->phy.phy_type_high;
+	// phy_type_low = hw->port_info->phy.phy_type_low;
+	// phy_type_high = hw->port_info->phy.phy_type_high;
 
-	if (ICE_PHY_TYPE_SUPPORT_50G(phy_type_low))
-		dev_info->speed_capa |= RTE_ETH_LINK_SPEED_50G;
+	// if (ICE_PHY_TYPE_SUPPORT_50G(phy_type_low))
+	// 	dev_info->speed_capa |= RTE_ETH_LINK_SPEED_50G;
 
-	if (ICE_PHY_TYPE_SUPPORT_100G_LOW(phy_type_low) ||
-			ICE_PHY_TYPE_SUPPORT_100G_HIGH(phy_type_high))
-		dev_info->speed_capa |= RTE_ETH_LINK_SPEED_100G;
+	// if (ICE_PHY_TYPE_SUPPORT_100G_LOW(phy_type_low) ||
+	// 		ICE_PHY_TYPE_SUPPORT_100G_HIGH(phy_type_high))
+	// 	dev_info->speed_capa |= RTE_ETH_LINK_SPEED_100G;
 
-	dev_info->nb_rx_queues = dev->data->nb_rx_queues;
-	dev_info->nb_tx_queues = dev->data->nb_tx_queues;
+	// dev_info->nb_rx_queues = dev->data->nb_rx_queues;
+	// dev_info->nb_tx_queues = dev->data->nb_tx_queues;
 
-	dev_info->default_rxportconf.burst_size = ICE_RX_MAX_BURST;
-	dev_info->default_txportconf.burst_size = ICE_TX_MAX_BURST;
-	dev_info->default_rxportconf.nb_queues = 1;
-	dev_info->default_txportconf.nb_queues = 1;
-	dev_info->default_rxportconf.ring_size = ICE_BUF_SIZE_MIN;
-	dev_info->default_txportconf.ring_size = ICE_BUF_SIZE_MIN;
+	// dev_info->default_rxportconf.burst_size = ICE_RX_MAX_BURST;
+	// dev_info->default_txportconf.burst_size = ICE_TX_MAX_BURST;
+	// dev_info->default_rxportconf.nb_queues = 1;
+	// dev_info->default_txportconf.nb_queues = 1;
+	// dev_info->default_rxportconf.ring_size = ICE_BUF_SIZE_MIN;
+	// dev_info->default_txportconf.ring_size = ICE_BUF_SIZE_MIN;
 
-	dev_info->rx_seg_capa.max_nseg = ICE_RX_MAX_NSEG;
-	dev_info->rx_seg_capa.multi_pools = 1;
-	dev_info->rx_seg_capa.offset_allowed = 0;
-	dev_info->rx_seg_capa.offset_align_log2 = 0;
+	// dev_info->rx_seg_capa.max_nseg = ICE_RX_MAX_NSEG;
+	// dev_info->rx_seg_capa.multi_pools = 1;
+	// dev_info->rx_seg_capa.offset_allowed = 0;
+	// dev_info->rx_seg_capa.offset_align_log2 = 0;
 
 	return 0;
 }
