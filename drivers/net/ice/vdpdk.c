@@ -269,7 +269,7 @@ static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 };
 
 static const struct eth_dev_ops vdpdk_eth_dev_ops = {
-	NULL,
+	.dev_configure                = ice_dev_configure,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -3208,27 +3208,27 @@ out:
 static int
 ice_dev_configure(struct rte_eth_dev *dev)
 {
-	struct ice_adapter *ad =
-		ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
-	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
-	int ret;
+	// struct ice_adapter *ad =
+	// 	ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
+	// struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	// int ret;
 
-	/* Initialize to TRUE. If any of Rx queues doesn't meet the
-	 * bulk allocation or vector Rx preconditions we will reset it.
-	 */
-	ad->rx_bulk_alloc_allowed = true;
-	ad->tx_simple_allowed = true;
+	// /* Initialize to TRUE. If any of Rx queues doesn't meet the
+	//  * bulk allocation or vector Rx preconditions we will reset it.
+	//  */
+	// ad->rx_bulk_alloc_allowed = true;
+	// ad->tx_simple_allowed = true;
 
-	if (dev->data->dev_conf.rxmode.mq_mode & RTE_ETH_MQ_RX_RSS_FLAG)
-		dev->data->dev_conf.rxmode.offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
+	// if (dev->data->dev_conf.rxmode.mq_mode & RTE_ETH_MQ_RX_RSS_FLAG)
+	// 	dev->data->dev_conf.rxmode.offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
 
-	if (dev->data->nb_rx_queues) {
-		ret = ice_init_rss(pf);
-		if (ret) {
-			PMD_DRV_LOG(ERR, "Failed to enable rss for PF");
-			return ret;
-		}
-	}
+	// if (dev->data->nb_rx_queues) {
+	// 	ret = ice_init_rss(pf);
+	// 	if (ret) {
+	// 		PMD_DRV_LOG(ERR, "Failed to enable rss for PF");
+	// 		return ret;
+	// 	}
+	// }
 
 	return 0;
 }
