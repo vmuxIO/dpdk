@@ -197,6 +197,11 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf);
 
+static int vdpdk_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id);
+static int vdpdk_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id);
+static int vdpdk_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id);
+static int vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id);
+
 static const struct rte_pci_id pci_id_ice_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
 	{ .vendor_id = 0, /* sentinel */ },
@@ -286,8 +291,14 @@ static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_infos_get                = ice_dev_info_get,
+	.rx_queue_start               = vdpdk_rx_queue_start,
+	.rx_queue_stop                = vdpdk_rx_queue_stop,
+	.tx_queue_start               = vdpdk_tx_queue_start,
+	.tx_queue_stop                = vdpdk_tx_queue_stop,
 	.rx_queue_setup               = vdpdk_rx_queue_setup,
+	// .rx_queue_release             = vdpdk_dev_rx_queue_release,
 	.tx_queue_setup               = vdpdk_tx_queue_setup,
+	// .tx_queue_release             = vdpdk_dev_tx_queue_release,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -6305,6 +6316,28 @@ ice_buffer_split_supported_hdr_ptypes_get(struct rte_eth_dev *dev __rte_unused)
 	};
 
 	return ptypes;
+}
+
+static int
+vdpdk_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id)
+{
+	return 0;
+}
+
+static int
+vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id)
+{
+	return 0;
+}
+
+static int
+vdpdk_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
+	return 0;
+}
+
+static int
+vdpdk_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
+	return 0;
 }
 
 static int
