@@ -6380,7 +6380,7 @@ vdpdk_recv_pkts(void *rx_queue,
 
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
-	return 0;
+	return nb_pkts;
 }
 
 static int
