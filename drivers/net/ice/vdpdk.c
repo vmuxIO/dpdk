@@ -292,6 +292,7 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_infos_get                = ice_dev_info_get,
 	.dev_start                    = ice_dev_start,
+	.dev_set_link_up              = ice_dev_set_link_up,
 	.rx_queue_start               = vdpdk_rx_queue_start,
 	.rx_queue_stop                = vdpdk_rx_queue_stop,
 	.tx_queue_start               = vdpdk_tx_queue_start,
@@ -4012,7 +4013,8 @@ done:
 static int
 ice_dev_set_link_up(struct rte_eth_dev *dev)
 {
-	return ice_apply_link_speed(dev);
+	// return ice_apply_link_speed(dev);
+	return 0;
 }
 
 static int
