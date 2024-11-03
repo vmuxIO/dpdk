@@ -202,6 +202,14 @@ static int vdpdk_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id);
 static int vdpdk_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 static int vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 
+static uint16_t
+vdpdk_recv_pkts(void *rx_queue,
+	      struct rte_mbuf **rx_pkts,
+	      uint16_t nb_pkts);
+
+static uint16_t
+vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
+
 static const struct rte_pci_id pci_id_ice_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
 	{ .vendor_id = 0, /* sentinel */ },
@@ -2096,8 +2104,8 @@ ice_dev_init(struct rte_eth_dev *dev)
 	// dev->rx_queue_count = ice_rx_queue_count;
 	// dev->rx_descriptor_status = ice_rx_descriptor_status;
 	// dev->tx_descriptor_status = ice_tx_descriptor_status;
-	// dev->rx_pkt_burst = ice_recv_pkts;
-	// dev->tx_pkt_burst = ice_xmit_pkts;
+	dev->rx_pkt_burst = vdpdk_recv_pkts;
+	dev->tx_pkt_burst = vdpdk_xmit_pkts;
 	// dev->tx_pkt_prepare = ice_prep_pkts;
 
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY) {
@@ -6360,6 +6368,18 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   uint16_t nb_desc,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf) {
+	return 0;
+}
+
+static uint16_t
+vdpdk_recv_pkts(void *rx_queue,
+	      struct rte_mbuf **rx_pkts,
+	      uint16_t nb_pkts) {
+	return 0;
+}
+
+static uint16_t
+vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	return 0;
 }
 
