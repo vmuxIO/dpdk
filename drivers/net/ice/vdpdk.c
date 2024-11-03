@@ -291,6 +291,7 @@ static const struct eth_dev_ops UNUSED_ice_eth_dev_ops = {
 static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.dev_configure                = ice_dev_configure,
 	.dev_infos_get                = ice_dev_info_get,
+	.dev_start                    = ice_dev_start,
 	.rx_queue_start               = vdpdk_rx_queue_start,
 	.rx_queue_stop                = vdpdk_rx_queue_stop,
 	.tx_queue_start               = vdpdk_tx_queue_start,
@@ -3497,117 +3498,117 @@ ice_pps_out_cfg(struct ice_hw *hw, int idx, int timer)
 static int
 ice_dev_start(struct rte_eth_dev *dev)
 {
-	struct rte_eth_dev_data *data = dev->data;
-	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
-	struct ice_vsi *vsi = pf->main_vsi;
-	struct ice_adapter *ad =
-			ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
-	uint16_t nb_rxq = 0;
-	uint16_t nb_txq, i;
-	uint16_t max_frame_size;
-	int mask, ret;
-	uint8_t timer = hw->func_caps.ts_func_info.tmr_index_owned;
-	uint32_t pin_idx = ad->devargs.pin_idx;
+// 	struct rte_eth_dev_data *data = dev->data;
+// 	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+// 	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+// 	struct ice_vsi *vsi = pf->main_vsi;
+// 	struct ice_adapter *ad =
+// 			ICE_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
+// 	uint16_t nb_rxq = 0;
+// 	uint16_t nb_txq, i;
+// 	uint16_t max_frame_size;
+// 	int mask, ret;
+// 	uint8_t timer = hw->func_caps.ts_func_info.tmr_index_owned;
+// 	uint32_t pin_idx = ad->devargs.pin_idx;
 
-	/* program Tx queues' context in hardware */
-	for (nb_txq = 0; nb_txq < data->nb_tx_queues; nb_txq++) {
-		ret = ice_tx_queue_start(dev, nb_txq);
-		if (ret) {
-			PMD_DRV_LOG(ERR, "fail to start Tx queue %u", nb_txq);
-			goto tx_err;
-		}
-	}
+// 	/* program Tx queues' context in hardware */
+// 	for (nb_txq = 0; nb_txq < data->nb_tx_queues; nb_txq++) {
+// 		ret = ice_tx_queue_start(dev, nb_txq);
+// 		if (ret) {
+// 			PMD_DRV_LOG(ERR, "fail to start Tx queue %u", nb_txq);
+// 			goto tx_err;
+// 		}
+// 	}
 
-	if (dev->data->dev_conf.rxmode.offloads & RTE_ETH_RX_OFFLOAD_TIMESTAMP) {
-		/* Register mbuf field and flag for Rx timestamp */
-		ret = rte_mbuf_dyn_rx_timestamp_register(&ice_timestamp_dynfield_offset,
-							 &ice_timestamp_dynflag);
-		if (ret) {
-			PMD_DRV_LOG(ERR, "Cannot register mbuf field/flag for timestamp");
-			goto tx_err;
-		}
-	}
+// 	if (dev->data->dev_conf.rxmode.offloads & RTE_ETH_RX_OFFLOAD_TIMESTAMP) {
+// 		/* Register mbuf field and flag for Rx timestamp */
+// 		ret = rte_mbuf_dyn_rx_timestamp_register(&ice_timestamp_dynfield_offset,
+// 							 &ice_timestamp_dynflag);
+// 		if (ret) {
+// 			PMD_DRV_LOG(ERR, "Cannot register mbuf field/flag for timestamp");
+// 			goto tx_err;
+// 		}
+// 	}
 
-	/* program Rx queues' context in hardware*/
-	for (nb_rxq = 0; nb_rxq < data->nb_rx_queues; nb_rxq++) {
-		ret = ice_rx_queue_start(dev, nb_rxq);
-		if (ret) {
-			PMD_DRV_LOG(ERR, "fail to start Rx queue %u", nb_rxq);
-			goto rx_err;
-		}
-	}
+// 	/* program Rx queues' context in hardware*/
+// 	for (nb_rxq = 0; nb_rxq < data->nb_rx_queues; nb_rxq++) {
+// 		ret = ice_rx_queue_start(dev, nb_rxq);
+// 		if (ret) {
+// 			PMD_DRV_LOG(ERR, "fail to start Rx queue %u", nb_rxq);
+// 			goto rx_err;
+// 		}
+// 	}
 
-	ice_set_rx_function(dev);
-	ice_set_tx_function(dev);
+// 	ice_set_rx_function(dev);
+// 	ice_set_tx_function(dev);
 
-	mask = RTE_ETH_VLAN_STRIP_MASK | RTE_ETH_VLAN_FILTER_MASK |
-			RTE_ETH_VLAN_EXTEND_MASK | RTE_ETH_QINQ_STRIP_MASK;
-	ret = ice_vlan_offload_set(dev, mask);
-	if (ret) {
-		PMD_INIT_LOG(ERR, "Unable to set VLAN offload");
-		goto rx_err;
-	}
+// 	mask = RTE_ETH_VLAN_STRIP_MASK | RTE_ETH_VLAN_FILTER_MASK |
+// 			RTE_ETH_VLAN_EXTEND_MASK | RTE_ETH_QINQ_STRIP_MASK;
+// 	ret = ice_vlan_offload_set(dev, mask);
+// 	if (ret) {
+// 		PMD_INIT_LOG(ERR, "Unable to set VLAN offload");
+// 		goto rx_err;
+// 	}
 
-	/* enable Rx interrupt and mapping Rx queue to interrupt vector */
-	if (ice_rxq_intr_setup(dev))
-		return -EIO;
+// 	/* enable Rx interrupt and mapping Rx queue to interrupt vector */
+// 	if (ice_rxq_intr_setup(dev))
+// 		return -EIO;
 
-	/* Enable receiving broadcast packets and transmitting packets */
-	ret = ice_set_vsi_promisc(hw, vsi->idx,
-				  ICE_PROMISC_BCAST_RX | ICE_PROMISC_BCAST_TX |
-				  ICE_PROMISC_UCAST_TX | ICE_PROMISC_MCAST_TX,
-				  0);
-	if (ret != ICE_SUCCESS)
-		PMD_DRV_LOG(INFO, "fail to set vsi broadcast");
+// 	/* Enable receiving broadcast packets and transmitting packets */
+// 	ret = ice_set_vsi_promisc(hw, vsi->idx,
+// 				  ICE_PROMISC_BCAST_RX | ICE_PROMISC_BCAST_TX |
+// 				  ICE_PROMISC_UCAST_TX | ICE_PROMISC_MCAST_TX,
+// 				  0);
+// 	if (ret != ICE_SUCCESS)
+// 		PMD_DRV_LOG(INFO, "fail to set vsi broadcast");
 
-	ret = ice_aq_set_event_mask(hw, hw->port_info->lport,
-				    ((u16)(ICE_AQ_LINK_EVENT_LINK_FAULT |
-				     ICE_AQ_LINK_EVENT_PHY_TEMP_ALARM |
-				     ICE_AQ_LINK_EVENT_EXCESSIVE_ERRORS |
-				     ICE_AQ_LINK_EVENT_SIGNAL_DETECT |
-				     ICE_AQ_LINK_EVENT_AN_COMPLETED |
-				     ICE_AQ_LINK_EVENT_PORT_TX_SUSPENDED)),
-				     NULL);
-	if (ret != ICE_SUCCESS)
-		PMD_DRV_LOG(WARNING, "Fail to set phy mask");
+// 	ret = ice_aq_set_event_mask(hw, hw->port_info->lport,
+// 				    ((u16)(ICE_AQ_LINK_EVENT_LINK_FAULT |
+// 				     ICE_AQ_LINK_EVENT_PHY_TEMP_ALARM |
+// 				     ICE_AQ_LINK_EVENT_EXCESSIVE_ERRORS |
+// 				     ICE_AQ_LINK_EVENT_SIGNAL_DETECT |
+// 				     ICE_AQ_LINK_EVENT_AN_COMPLETED |
+// 				     ICE_AQ_LINK_EVENT_PORT_TX_SUSPENDED)),
+// 				     NULL);
+// 	if (ret != ICE_SUCCESS)
+// 		PMD_DRV_LOG(WARNING, "Fail to set phy mask");
 
-	ice_get_init_link_status(dev);
+// 	ice_get_init_link_status(dev);
 
-	ice_dev_set_link_up(dev);
+// 	ice_dev_set_link_up(dev);
 
-	/* Call get_link_info aq command to enable/disable LSE */
-	ice_link_update(dev, 1);
+// 	/* Call get_link_info aq command to enable/disable LSE */
+// 	ice_link_update(dev, 1);
 
-	pf->adapter_stopped = false;
+// 	pf->adapter_stopped = false;
 
-	/* Set the max frame size to default value*/
-	max_frame_size = pf->dev_data->mtu ?
-		pf->dev_data->mtu + ICE_ETH_OVERHEAD :
-		ICE_FRAME_SIZE_MAX;
+// 	/* Set the max frame size to default value*/
+// 	max_frame_size = pf->dev_data->mtu ?
+// 		pf->dev_data->mtu + ICE_ETH_OVERHEAD :
+// 		ICE_FRAME_SIZE_MAX;
 
-	/* Set the max frame size to HW*/
-	ice_aq_set_mac_cfg(hw, max_frame_size, false, NULL);
+// 	/* Set the max frame size to HW*/
+// 	ice_aq_set_mac_cfg(hw, max_frame_size, false, NULL);
 
-	if (ad->devargs.pps_out_ena) {
-		ret = ice_pps_out_cfg(hw, pin_idx, timer);
-		if (ret) {
-			PMD_DRV_LOG(ERR, "Fail to configure 1pps out");
-			goto rx_err;
-		}
-	}
+// 	if (ad->devargs.pps_out_ena) {
+// 		ret = ice_pps_out_cfg(hw, pin_idx, timer);
+// 		if (ret) {
+// 			PMD_DRV_LOG(ERR, "Fail to configure 1pps out");
+// 			goto rx_err;
+// 		}
+// 	}
 
 	return 0;
 
-	/* stop the started queues if failed to start all queues */
-rx_err:
-	for (i = 0; i < nb_rxq; i++)
-		ice_rx_queue_stop(dev, i);
-tx_err:
-	for (i = 0; i < nb_txq; i++)
-		ice_tx_queue_stop(dev, i);
+// 	/* stop the started queues if failed to start all queues */
+// rx_err:
+// 	for (i = 0; i < nb_rxq; i++)
+// 		ice_rx_queue_stop(dev, i);
+// tx_err:
+// 	for (i = 0; i < nb_txq; i++)
+// 		ice_tx_queue_stop(dev, i);
 
-	return -EIO;
+// 	return -EIO;
 }
 
 static int
