@@ -301,6 +301,7 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	// .rx_queue_release             = vdpdk_dev_rx_queue_release,
 	.tx_queue_setup               = vdpdk_tx_queue_setup,
 	// .tx_queue_release             = vdpdk_dev_tx_queue_release,
+	.link_update                  = ice_link_update,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -3801,96 +3802,96 @@ ice_atomic_write_link_status(struct rte_eth_dev *dev,
 static int
 ice_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
-#define CHECK_INTERVAL 100  /* 100ms */
-#define MAX_REPEAT_TIME 10  /* 1s (10 * 100ms) in total */
-	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	struct ice_link_status link_status;
-	struct rte_eth_link link, old;
-	int status;
-	unsigned int rep_cnt = MAX_REPEAT_TIME;
-	bool enable_lse = dev->data->dev_conf.intr_conf.lsc ? true : false;
+// #define CHECK_INTERVAL 100  /* 100ms */
+// #define MAX_REPEAT_TIME 10  /* 1s (10 * 100ms) in total */
+// 	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+// 	struct ice_link_status link_status;
+// 	struct rte_eth_link link, old;
+// 	int status;
+// 	unsigned int rep_cnt = MAX_REPEAT_TIME;
+// 	bool enable_lse = dev->data->dev_conf.intr_conf.lsc ? true : false;
 
-	memset(&link, 0, sizeof(link));
-	memset(&old, 0, sizeof(old));
-	memset(&link_status, 0, sizeof(link_status));
-	ice_atomic_read_link_status(dev, &old);
+// 	memset(&link, 0, sizeof(link));
+// 	memset(&old, 0, sizeof(old));
+// 	memset(&link_status, 0, sizeof(link_status));
+// 	ice_atomic_read_link_status(dev, &old);
 
-	do {
-		/* Get link status information from hardware */
-		status = ice_aq_get_link_info(hw->port_info, enable_lse,
-					      &link_status, NULL);
-		if (status != ICE_SUCCESS) {
-			link.link_speed = RTE_ETH_SPEED_NUM_100M;
-			link.link_duplex = RTE_ETH_LINK_FULL_DUPLEX;
-			PMD_DRV_LOG(ERR, "Failed to get link info");
-			goto out;
-		}
+// 	do {
+// 		/* Get link status information from hardware */
+// 		status = ice_aq_get_link_info(hw->port_info, enable_lse,
+// 					      &link_status, NULL);
+// 		if (status != ICE_SUCCESS) {
+// 			link.link_speed = RTE_ETH_SPEED_NUM_100M;
+// 			link.link_duplex = RTE_ETH_LINK_FULL_DUPLEX;
+// 			PMD_DRV_LOG(ERR, "Failed to get link info");
+// 			goto out;
+// 		}
 
-		link.link_status = link_status.link_info & ICE_AQ_LINK_UP;
-		if (!wait_to_complete || link.link_status)
-			break;
+// 		link.link_status = link_status.link_info & ICE_AQ_LINK_UP;
+// 		if (!wait_to_complete || link.link_status)
+// 			break;
 
-		rte_delay_ms(CHECK_INTERVAL);
-	} while (--rep_cnt);
+// 		rte_delay_ms(CHECK_INTERVAL);
+// 	} while (--rep_cnt);
 
-	if (!link.link_status)
-		goto out;
+// 	if (!link.link_status)
+// 		goto out;
 
-	/* Full-duplex operation at all supported speeds */
-	link.link_duplex = RTE_ETH_LINK_FULL_DUPLEX;
+// 	/* Full-duplex operation at all supported speeds */
+// 	link.link_duplex = RTE_ETH_LINK_FULL_DUPLEX;
 
-	/* Parse the link status */
-	switch (link_status.link_speed) {
-	case ICE_AQ_LINK_SPEED_10MB:
-		link.link_speed = RTE_ETH_SPEED_NUM_10M;
-		break;
-	case ICE_AQ_LINK_SPEED_100MB:
-		link.link_speed = RTE_ETH_SPEED_NUM_100M;
-		break;
-	case ICE_AQ_LINK_SPEED_1000MB:
-		link.link_speed = RTE_ETH_SPEED_NUM_1G;
-		break;
-	case ICE_AQ_LINK_SPEED_2500MB:
-		link.link_speed = RTE_ETH_SPEED_NUM_2_5G;
-		break;
-	case ICE_AQ_LINK_SPEED_5GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_5G;
-		break;
-	case ICE_AQ_LINK_SPEED_10GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_10G;
-		break;
-	case ICE_AQ_LINK_SPEED_20GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_20G;
-		break;
-	case ICE_AQ_LINK_SPEED_25GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_25G;
-		break;
-	case ICE_AQ_LINK_SPEED_40GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_40G;
-		break;
-	case ICE_AQ_LINK_SPEED_50GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_50G;
-		break;
-	case ICE_AQ_LINK_SPEED_100GB:
-		link.link_speed = RTE_ETH_SPEED_NUM_100G;
-		break;
-	case ICE_AQ_LINK_SPEED_UNKNOWN:
-		PMD_DRV_LOG(ERR, "Unknown link speed");
-		link.link_speed = RTE_ETH_SPEED_NUM_UNKNOWN;
-		break;
-	default:
-		PMD_DRV_LOG(ERR, "None link speed");
-		link.link_speed = RTE_ETH_SPEED_NUM_NONE;
-		break;
-	}
+// 	/* Parse the link status */
+// 	switch (link_status.link_speed) {
+// 	case ICE_AQ_LINK_SPEED_10MB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_10M;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_100MB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_100M;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_1000MB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_1G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_2500MB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_2_5G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_5GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_5G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_10GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_10G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_20GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_20G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_25GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_25G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_40GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_40G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_50GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_50G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_100GB:
+// 		link.link_speed = RTE_ETH_SPEED_NUM_100G;
+// 		break;
+// 	case ICE_AQ_LINK_SPEED_UNKNOWN:
+// 		PMD_DRV_LOG(ERR, "Unknown link speed");
+// 		link.link_speed = RTE_ETH_SPEED_NUM_UNKNOWN;
+// 		break;
+// 	default:
+// 		PMD_DRV_LOG(ERR, "None link speed");
+// 		link.link_speed = RTE_ETH_SPEED_NUM_NONE;
+// 		break;
+// 	}
 
-	link.link_autoneg = !(dev->data->dev_conf.link_speeds &
-			      RTE_ETH_LINK_SPEED_FIXED);
+// 	link.link_autoneg = !(dev->data->dev_conf.link_speeds &
+// 			      RTE_ETH_LINK_SPEED_FIXED);
 
-out:
-	ice_atomic_write_link_status(dev, &link);
-	if (link.link_status == old.link_status)
-		return -1;
+// out:
+// 	ice_atomic_write_link_status(dev, &link);
+// 	if (link.link_status == old.link_status)
+// 		return -1;
 
 	return 0;
 }
