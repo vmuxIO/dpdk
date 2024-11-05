@@ -210,6 +210,14 @@ vdpdk_recv_pkts(void *rx_queue,
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
+enum VDPDK_OFFSET {
+  DEBUG_STRING = 0x0,
+  PACKET_BEGIN = 0x40,
+  PACKET_DATA = 0x80,
+  PACKET_END = 0xc0,
+  RX_LEN = 0x100,
+};
+
 static const struct rte_pci_id pci_id_ice_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
 	{ .vendor_id = 0, /* sentinel */ },
@@ -2136,9 +2144,9 @@ ice_dev_init(struct rte_eth_dev *dev)
 	PMD_INIT_LOG(NOTICE, "read string: %s", dkbuf);
 
 	strcpy(dkbuf, "Greetings from dpdk");
-	for (size_t i = 0; i < sizeof(dkbuf) - 1; i++) {
+	for (size_t i = 0; i < sizeof(dkbuf); i++) {
 		char c = dkbuf[i];
-		rte_write8(c, (char *)dkaddr + i);
+		rte_write8(c, (char *)dkaddr + DEBUG_STRING);
 		if (c == '\0') break;
 	}
 
@@ -6368,6 +6376,8 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   uint16_t nb_desc,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf) {
+	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	dev->data->tx_queues[0] = pci_dev->mem_resource[0].addr;
 	return 0;
 }
 
@@ -6378,10 +6388,37 @@ vdpdk_recv_pkts(void *rx_queue,
 	return 0;
 }
 
+static void vdpdk_memxfer(volatile void *dst, const char *src, size_t count) {
+	while (count >= 8) {
+		uint64_t n;
+		rte_memcpy(&n, src, 8);
+		src += 8;
+		count -= 8;
+		rte_write64(n, dst);
+	}
+	while (count > 0) {
+		rte_write8(*src, dst);
+		src++;
+		count--;
+	}
+}
+
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
-	for (unsigned i = 0; i < nb_pkts; i++)
-		rte_pktmbuf_free(tx_pkts[i]);
+	char *p = tx_queue;
+	for (unsigned i = 0; i < nb_pkts; i++) {
+		rte_write8(0, p + PACKET_BEGIN);
+
+		struct rte_mbuf *seg = tx_pkts[i];
+		while (seg != NULL) {
+			vdpdk_memxfer(p + PACKET_DATA, rte_pktmbuf_mtod(seg, char *), seg->data_len);
+			struct rte_mbuf *next = seg->next;
+			rte_pktmbuf_free_seg(seg);
+			seg = next;
+		}
+
+		rte_write8(0, p + PACKET_END);
+	}
 	return nb_pkts;
 }
 
