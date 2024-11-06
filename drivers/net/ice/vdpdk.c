@@ -212,10 +212,19 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
 enum VDPDK_OFFSET {
   DEBUG_STRING = 0x0,
-  PACKET_BEGIN = 0x40,
-  PACKET_DATA = 0x80,
-  PACKET_END = 0xc0,
-  RX_LEN = 0x100,
+  TX_SIGNAL = 0x40,
+};
+
+enum VDPDK_CONSTS {
+	REGION_SIZE = 0x1000,
+	PKT_LEN_OFF = 0x1000 - 2,
+	MAX_PKT_LEN = PKT_LEN_OFF,
+};
+
+struct vdpdk_regions {
+	unsigned char *signal;
+	unsigned char *tx;
+	unsigned char *rx;
 };
 
 static const struct rte_pci_id pci_id_ice_map[] = {
@@ -2149,6 +2158,11 @@ ice_dev_init(struct rte_eth_dev *dev)
 		rte_write8(c, (char *)dkaddr + DEBUG_STRING);
 		if (c == '\0') break;
 	}
+
+	struct vdpdk_regions *regs = dev->data->dev_private;
+	regs->signal = pci_dev->mem_resource[0].addr;
+	regs->tx = pci_dev->mem_resource[1].addr;
+	regs->rx = pci_dev->mem_resource[2].addr;
 
 	return 0;
 
@@ -6367,6 +6381,7 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		   unsigned int socket_id,
 		   const struct rte_eth_rxconf *rx_conf,
 		   struct rte_mempool *mp) {
+	dev->data->rx_queues[0] = dev->data->dev_private;
 	return 0;
 }
 
@@ -6376,8 +6391,7 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   uint16_t nb_desc,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf) {
-	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
-	dev->data->tx_queues[0] = pci_dev->mem_resource[0].addr;
+	dev->data->tx_queues[0] = dev->data->dev_private;
 	return 0;
 }
 
@@ -6388,36 +6402,32 @@ vdpdk_recv_pkts(void *rx_queue,
 	return 0;
 }
 
-static void vdpdk_memxfer(volatile void *dst, const char *src, size_t count) {
-	while (count >= 8) {
-		uint64_t n;
-		rte_memcpy(&n, src, 8);
-		src += 8;
-		count -= 8;
-		rte_write64(n, dst);
-	}
-	while (count > 0) {
-		rte_write8(*src, dst);
-		src++;
-		count--;
-	}
-}
-
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
-	char *p = tx_queue;
-	for (unsigned i = 0; i < nb_pkts; i++) {
-		rte_write8(0, p + PACKET_BEGIN);
+	struct vdpdk_regions *regs = tx_queue;
 
+	for (unsigned i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
+
+		if (seg->pkt_len > MAX_PKT_LEN) {
+			return i;
+		}
+		uint16_t pkt_len = seg->pkt_len;
+
+		unsigned char *buf = regs->tx;
 		while (seg != NULL) {
-			vdpdk_memxfer(p + PACKET_DATA, rte_pktmbuf_mtod(seg, char *), seg->data_len);
+			rte_memcpy(buf, rte_pktmbuf_mtod(seg, void *), seg->data_len);
+			buf += seg->data_len;
 			struct rte_mbuf *next = seg->next;
 			rte_pktmbuf_free_seg(seg);
 			seg = next;
 		}
 
-		rte_write8(0, p + PACKET_END);
+		regs->tx[PKT_LEN_OFF] = pkt_len;
+		regs->tx[PKT_LEN_OFF + 1] = pkt_len >> 8;
+
+		rte_io_mb();
+		rte_read8(regs->signal + TX_SIGNAL);
 	}
 	return nb_pkts;
 }
@@ -6427,7 +6437,7 @@ ice_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 	      struct rte_pci_device *pci_dev)
 {
 	return rte_eth_dev_pci_generic_probe(pci_dev,
-					     sizeof(struct ice_adapter),
+					     sizeof(struct vdpdk_regions),
 					     ice_dev_init);
 }
 
