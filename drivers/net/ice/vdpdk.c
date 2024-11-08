@@ -219,7 +219,6 @@ enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
 	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
 	PKT_LEN_OFF = PKT_SIGNAL_OFF - 2,
-	MAX_PKT_LEN = PKT_LEN_OFF,
 };
 
 struct vdpdk_regions {
@@ -6408,31 +6407,46 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	struct vdpdk_regions *regs = tx_queue;
 	uint8_t *lock = regs->tx + PKT_SIGNAL_OFF;
 
-	for (unsigned i = 0; i < nb_pkts; i++) {
+	unsigned char *pkt_len_ptr = regs->tx + PKT_LEN_OFF;
+	unsigned char *data_ptr = regs->tx;
+
+	while (rte_read8(lock) != 1);
+
+	unsigned i;
+	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
 
-		if (seg->pkt_len > MAX_PKT_LEN) {
-			return i;
+		if (data_ptr >= pkt_len_ptr) {
+			break;
 		}
+
 		uint16_t pkt_len = seg->pkt_len;
+		uint16_t max_pkt_len = pkt_len_ptr - data_ptr;
+		if (pkt_len > max_pkt_len) {
+			break;
+		}
 
-		while (rte_read8(lock) != 1);
-
-		unsigned char *buf = regs->tx;
 		while (seg != NULL) {
-			rte_memcpy(buf, rte_pktmbuf_mtod(seg, void *), seg->data_len);
-			buf += seg->data_len;
+			rte_memcpy(data_ptr, rte_pktmbuf_mtod(seg, void *), seg->data_len);
+			data_ptr += seg->data_len;
 			struct rte_mbuf *next = seg->next;
 			rte_pktmbuf_free_seg(seg);
 			seg = next;
 		}
 
-		regs->tx[PKT_LEN_OFF] = pkt_len;
-		regs->tx[PKT_LEN_OFF + 1] = pkt_len >> 8;
-
-		rte_write8(0, lock);
+		pkt_len_ptr[0] = pkt_len;
+		pkt_len_ptr[1] = pkt_len >> 8;
+		pkt_len_ptr -= 2;
 	}
-	return nb_pkts;
+
+	// sentinel packet length
+	if (pkt_len_ptr > data_ptr) {
+		pkt_len_ptr[0] = 0;
+		pkt_len_ptr[1] = 0;
+	}
+
+	rte_write8(0, lock);
+	return i;
 }
 
 static int
