@@ -217,7 +217,8 @@ enum VDPDK_OFFSET {
 
 enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
-	PKT_LEN_OFF = 0x1000 - 2,
+	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
+	PKT_LEN_OFF = PKT_SIGNAL_OFF - 2,
 	MAX_PKT_LEN = PKT_LEN_OFF,
 };
 
@@ -6405,6 +6406,7 @@ vdpdk_recv_pkts(void *rx_queue,
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	struct vdpdk_regions *regs = tx_queue;
+	uint8_t *lock = regs->tx + PKT_SIGNAL_OFF;
 
 	for (unsigned i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
@@ -6413,6 +6415,8 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 			return i;
 		}
 		uint16_t pkt_len = seg->pkt_len;
+
+		while (rte_read8(lock) != 1);
 
 		unsigned char *buf = regs->tx;
 		while (seg != NULL) {
@@ -6426,8 +6430,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 		regs->tx[PKT_LEN_OFF] = pkt_len;
 		regs->tx[PKT_LEN_OFF + 1] = pkt_len >> 8;
 
-		rte_io_mb();
-		rte_read8(regs->signal + TX_SIGNAL);
+		rte_write8(0, lock);
 	}
 	return nb_pkts;
 }
