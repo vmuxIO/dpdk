@@ -24,6 +24,7 @@
 #include "ice_ethdev.h"
 #include "ice_rxtx.h"
 #include "ice_generic_flow.h"
+#include "rte_mbuf.h"
 
 /* devargs */
 #define ICE_SAFE_MODE_SUPPORT_ARG "safe-mode-support"
@@ -212,13 +213,12 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
 enum VDPDK_OFFSET {
   DEBUG_STRING = 0x0,
-  TX_SIGNAL = 0x40,
 };
 
 enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
 	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
-	PKT_LEN_OFF = PKT_SIGNAL_OFF - 2,
+	MAX_PKT_LEN = PKT_SIGNAL_OFF,
 };
 
 struct vdpdk_regions {
@@ -6407,8 +6407,9 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	struct vdpdk_regions *regs = tx_queue;
 	uint8_t *lock = regs->tx + PKT_SIGNAL_OFF;
 
-	unsigned char *pkt_len_ptr = regs->tx + PKT_LEN_OFF;
-	unsigned char *data_ptr = regs->tx;
+	unsigned char *ptr = regs->tx;
+	unsigned char *end = ptr + MAX_PKT_LEN;
+	const size_t addr_size = sizeof(uintptr_t);
 
 	while (rte_read8(lock) != 1);
 
@@ -6416,37 +6417,48 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
 
-		if (data_ptr >= pkt_len_ptr) {
+		if (ptr + 2 + addr_size > end) {
 			break;
 		}
 
 		uint16_t pkt_len = seg->pkt_len;
-		uint16_t max_pkt_len = pkt_len_ptr - data_ptr;
-		if (pkt_len > max_pkt_len) {
+
+		// TODO:
+		if (seg->next != NULL) {
 			break;
 		}
+		// while (seg != NULL) {
+		// 	rte_memcpy(data_ptr, rte_pktmbuf_mtod(seg, void *), seg->data_len);
+		// 	data_ptr += seg->data_len;
+		// 	struct rte_mbuf *next = seg->next;
+		// 	rte_pktmbuf_free_seg(seg);
+		// 	seg = next;
+		// }
 
-		while (seg != NULL) {
-			rte_memcpy(data_ptr, rte_pktmbuf_mtod(seg, void *), seg->data_len);
-			data_ptr += seg->data_len;
-			struct rte_mbuf *next = seg->next;
-			rte_pktmbuf_free_seg(seg);
-			seg = next;
-		}
+		ptr[0] = pkt_len;
+		ptr[1] = pkt_len >> 8;
+		ptr += 2;
 
-		pkt_len_ptr[0] = pkt_len;
-		pkt_len_ptr[1] = pkt_len >> 8;
-		pkt_len_ptr -= 2;
+		uintptr_t dma_addr = rte_pktmbuf_iova(seg);
+		rte_memcpy(ptr, &dma_addr, addr_size);
+		ptr += addr_size;
 	}
 
 	// sentinel packet length
-	if (pkt_len_ptr > data_ptr) {
-		pkt_len_ptr[0] = 0;
-		pkt_len_ptr[1] = 0;
+	if (ptr + 2 + addr_size <= end) {
+		ptr[0] = 0;
+		ptr[1] = 0;
 	}
 
 	rte_write8(0, lock);
-	return i;
+
+	unsigned success_pkts = i;
+
+	//TODO: for now we wait here until packets were sent so we can clean up
+	while (rte_read8(lock) != 1);
+	rte_pktmbuf_free_bulk(tx_pkts, success_pkts);
+
+	return success_pkts;
 }
 
 static int
