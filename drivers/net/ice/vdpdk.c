@@ -6473,6 +6473,7 @@ vdpdk_recv_pkts(void *rx_queue,
 		}
 
 		rx_pkts[i] = regs->rx_bufs[i];
+		rx_pkts[i]->data_len = pkt_len;
 		regs->rx_bufs[i] = new_buf;
 	}
 
