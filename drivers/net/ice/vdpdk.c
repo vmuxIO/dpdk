@@ -219,12 +219,17 @@ enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
 	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
 	MAX_PKT_LEN = PKT_SIGNAL_OFF,
+	MAX_RX_DESCS = 256,
 };
 
-struct vdpdk_regions {
+struct vdpdk_private_data {
 	unsigned char *signal;
 	unsigned char *tx;
 	unsigned char *rx;
+
+	struct rte_mempool *rx_pool;
+	struct rte_mbuf *rx_bufs[MAX_RX_DESCS];
+	unsigned rx_buf_count;
 };
 
 static const struct rte_pci_id pci_id_ice_map[] = {
@@ -2159,7 +2164,7 @@ ice_dev_init(struct rte_eth_dev *dev)
 		if (c == '\0') break;
 	}
 
-	struct vdpdk_regions *regs = dev->data->dev_private;
+	struct vdpdk_private_data *regs = dev->data->dev_private;
 	regs->signal = pci_dev->mem_resource[0].addr;
 	regs->tx = pci_dev->mem_resource[1].addr;
 	regs->rx = pci_dev->mem_resource[2].addr;
@@ -3748,11 +3753,11 @@ ice_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	// 	.offloads = 0,
 	// };
 
-	// dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
-	// 	.nb_max = ICE_MAX_RING_DESC,
-	// 	.nb_min = ICE_MIN_RING_DESC,
-	// 	.nb_align = ICE_ALIGN_RING_DESC,
-	// };
+	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = MAX_RX_DESCS,
+		.nb_min = ICE_MIN_RING_DESC,
+		.nb_align = ICE_ALIGN_RING_DESC,
+	};
 
 	// dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
 	// 	.nb_max = ICE_MAX_RING_DESC,
@@ -6381,7 +6386,17 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		   unsigned int socket_id,
 		   const struct rte_eth_rxconf *rx_conf,
 		   struct rte_mempool *mp) {
+	if (queue_idx != 0) return -EINVAL;
 	dev->data->rx_queues[0] = dev->data->dev_private;
+	struct vdpdk_private_data *data = dev->data->dev_private;
+	data->rx_pool = mp;
+	if (nb_desc < ICE_MIN_RING_DESC || nb_desc > MAX_RX_DESCS) {
+		return -EINVAL;
+	}
+	if (rte_pktmbuf_alloc_bulk(mp, data->rx_bufs, nb_desc) != 0) {
+		return -ENOMEM;
+	}
+	data->rx_buf_count = nb_desc;
 	return 0;
 }
 
@@ -6391,6 +6406,7 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   uint16_t nb_desc,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf) {
+	if (queue_idx != 0) return -EINVAL;
 	dev->data->tx_queues[0] = dev->data->dev_private;
 	return 0;
 }
@@ -6399,12 +6415,73 @@ static uint16_t
 vdpdk_recv_pkts(void *rx_queue,
 	      struct rte_mbuf **rx_pkts,
 	      uint16_t nb_pkts) {
-	return 0;
+	struct vdpdk_private_data *regs = rx_queue;
+	uint8_t *lock = regs->rx + PKT_SIGNAL_OFF;
+
+	unsigned char *ptr = regs->rx;
+	unsigned char *end = ptr + MAX_PKT_LEN;
+	const size_t addr_size = sizeof(uintptr_t);
+
+	if (nb_pkts > regs->rx_buf_count) {
+		nb_pkts = regs->rx_buf_count;
+	}
+
+	while (rte_read8(lock) != 1);
+
+	for (unsigned i = 0; i < nb_pkts; i++) {
+		if (ptr + 2 + addr_size > end) {
+			break;
+		}
+
+		struct rte_mbuf *buf = regs->rx_bufs[i];
+
+		uint16_t max_len = rte_pktmbuf_tailroom(buf);
+		ptr[0] = max_len;
+		ptr[1] = max_len >> 8;
+		ptr += 2;
+
+		uintptr_t dma_addr = rte_pktmbuf_iova(buf);
+		rte_memcpy(ptr, &dma_addr, addr_size);
+		ptr += addr_size;
+	}
+
+	if (ptr + 2 + addr_size <= end) {
+		ptr[0] = 0;
+		ptr[1] = 0;
+	}
+
+	rte_write8(0, lock);
+	while (rte_read8(lock) != 1);
+
+	ptr = regs->rx;
+	unsigned i;
+	for (i = 0; i < nb_pkts; i++) {
+		if (ptr + 2 + addr_size > end) {
+			break;
+		}
+
+		uint16_t pkt_len = ptr[0] | ((uint16_t)ptr[1] << 8);
+		ptr += 2 + addr_size;
+
+		if (pkt_len == 0) {
+			break;
+		}
+
+		struct rte_mbuf *new_buf = rte_pktmbuf_alloc(regs->rx_pool);
+		if (!new_buf) {
+			break;
+		}
+
+		rx_pkts[i] = regs->rx_bufs[i];
+		regs->rx_bufs[i] = new_buf;
+	}
+
+	return i;
 }
 
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
-	struct vdpdk_regions *regs = tx_queue;
+	struct vdpdk_private_data *regs = tx_queue;
 	uint8_t *lock = regs->tx + PKT_SIGNAL_OFF;
 
 	unsigned char *ptr = regs->tx;
@@ -6466,7 +6543,7 @@ ice_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 	      struct rte_pci_device *pci_dev)
 {
 	return rte_eth_dev_pci_generic_probe(pci_dev,
-					     sizeof(struct vdpdk_regions),
+					     sizeof(struct vdpdk_private_data),
 					     ice_dev_init);
 }
 
