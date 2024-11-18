@@ -3,6 +3,11 @@
 #include <ethdev_pci.h>
 #include <bus_pci_driver.h>
 #include <rte_io.h>
+#include <rte_log.h>
+
+extern int vdpdk_log;
+
+#define VDPDK_TRACE(fmt, ...) rte_log(RTE_LOG_DEBUG, vdpdk_log, "%s(): " fmt "\n", __func__, ## __VA_ARGS__)
 
 static int vdpdk_dev_configure(struct rte_eth_dev *dev);
 static int vdpdk_dev_start(struct rte_eth_dev *dev);
@@ -86,12 +91,14 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 static int
 vdpdk_dev_configure(struct rte_eth_dev *dev)
 {
+	VDPDK_TRACE();
 	return 0;
 }
 
 static int
 vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 {
+	VDPDK_TRACE();
 	dev_info->min_rx_bufsize = 1024;
 	dev_info->max_rx_pktlen = 9728;
 	dev_info->max_rx_queues = 1;
@@ -109,34 +116,40 @@ vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 static int
 vdpdk_dev_start(struct rte_eth_dev *dev)
 {
+	VDPDK_TRACE();
 	return 0;
 }
 
 static int
 vdpdk_dev_set_link_up(struct rte_eth_dev *dev)
 {
+	VDPDK_TRACE();
 	return 0;
 }
 
 static int
 vdpdk_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 {
+	VDPDK_TRACE("queue: %d", (int)rx_queue_id);
 	return 0;
 }
 
 static int
 vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 {
+	VDPDK_TRACE("queue: %d", (int)rx_queue_id);
 	return 0;
 }
 
 static int
 vdpdk_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
+	VDPDK_TRACE("queue: %d", (int)tx_queue_id);
 	return 0;
 }
 
 static int
 vdpdk_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
+	VDPDK_TRACE("queue: %d", (int)tx_queue_id);
 	return 0;
 }
 
@@ -147,6 +160,7 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		   unsigned int socket_id,
 		   const struct rte_eth_rxconf *rx_conf,
 		   struct rte_mempool *mp) {
+	VDPDK_TRACE("queue: %d, nb_desc: %d", (int)queue_idx, (int)nb_desc);
 	if (queue_idx != 0) return -EINVAL;
 	dev->data->rx_queues[0] = dev->data->dev_private;
 	struct vdpdk_private_data *data = dev->data->dev_private;
@@ -167,6 +181,7 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   uint16_t nb_desc,
 		   unsigned int socket_id,
 		   const struct rte_eth_txconf *tx_conf) {
+	VDPDK_TRACE("queue: %d, nb_desc: %d", (int)queue_idx, (int)nb_desc);
 	if (queue_idx != 0) return -EINVAL;
 	dev->data->tx_queues[0] = dev->data->dev_private;
 	return 0;
@@ -306,12 +321,14 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 static int
 vdpdk_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
+	VDPDK_TRACE();
 	return 0;
 }
 
 static int
 vdpdk_dev_init(struct rte_eth_dev *dev)
 {
+	VDPDK_TRACE();
 	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
 	dev->dev_ops = &vdpdk_eth_dev_ops;
 	// dev->rx_queue_count = ice_rx_queue_count;
@@ -366,6 +383,7 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 static int
 vdpdk_dev_uninit(struct rte_eth_dev *dev)
 {
+	VDPDK_TRACE();
 	(void)dev;
 
 	return 0;
@@ -396,3 +414,4 @@ static struct rte_pci_driver rte_vdpdk_pmd = {
 RTE_PMD_REGISTER_PCI(net_vdpdk, rte_vdpdk_pmd);
 RTE_PMD_REGISTER_PCI_TABLE(net_vdpdk, pci_id_vdpdk_map);
 RTE_PMD_REGISTER_KMOD_DEP(net_vdpdk, "* igb_uio | uio_pci_generic | vfio-pci");
+RTE_LOG_REGISTER_DEFAULT(vdpdk_log, NOTICE);
