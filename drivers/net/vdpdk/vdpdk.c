@@ -2,12 +2,14 @@
 #include <ethdev_driver.h>
 #include <ethdev_pci.h>
 #include <bus_pci_driver.h>
+#include <rte_common.h>
 #include <rte_io.h>
 #include <rte_log.h>
 
 extern int vdpdk_log;
 
-#define VDPDK_TRACE(fmt, ...) rte_log(RTE_LOG_DEBUG, vdpdk_log, "%s(): " fmt "\n", __func__, ## __VA_ARGS__)
+#define VDPDK_LOG(level, fmt, ...) rte_log(RTE_LOG_##level, vdpdk_log, "%s(): " fmt "\n", __func__, ## __VA_ARGS__)
+#define VDPDK_TRACE(...) VDPDK_LOG(DEBUG, __VA_ARGS__)
 
 static int vdpdk_dev_configure(struct rte_eth_dev *dev);
 static int vdpdk_dev_start(struct rte_eth_dev *dev);
@@ -58,6 +60,7 @@ enum VDPDK_CONSTS {
 	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
 	MAX_PKT_LEN = PKT_SIGNAL_OFF,
 	MAX_RX_DESCS = 256,
+	TX_DESC_SIZE = 0x20,
 };
 
 struct vdpdk_private_data {
@@ -69,6 +72,25 @@ struct vdpdk_private_data {
 	struct rte_mbuf *rx_bufs[MAX_RX_DESCS];
 	unsigned rx_buf_count;
 };
+
+struct vdpdk_tx_queue {
+	struct vdpdk_private_data *private_data;
+	const struct rte_memzone *ring;
+};
+
+struct vdpdk_tx_desc {
+	union {
+		uintptr_t dma_addr;
+		uint64_t _pad;
+	};
+	uint16_t len;
+	uint16_t flags;
+	struct rte_mbuf *buf;
+};
+static_assert(sizeof(struct vdpdk_tx_desc) <= TX_DESC_SIZE, "vdpdk tx descriptor: invalid size");
+static_assert(offsetof(struct vdpdk_tx_desc, dma_addr) == 0, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, len) == 8, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, flags) == 10, "vdpdk tx descriptor: unexpected offset");
 
 static const struct rte_pci_id pci_id_vdpdk_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
@@ -186,7 +208,38 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		   const struct rte_eth_txconf *tx_conf) {
 	VDPDK_TRACE("queue: %d, nb_desc: %d", (int)queue_idx, (int)nb_desc);
 	if (queue_idx != 0) return -EINVAL;
-	dev->data->tx_queues[0] = dev->data->dev_private;
+
+	// Free previous queue
+	if (dev->data->tx_queues[queue_idx]) {
+		vdpdk_tx_queue_release(dev, queue_idx);
+	}
+
+	// Allocate private queue data
+	struct vdpdk_tx_queue *txq = rte_zmalloc_socket("VDPDK_TX_QUEUE", sizeof(*txq), 0, socket_id);
+	if (!txq) {
+		VDPDK_LOG(ERR, "Failed to allocate memory for tx queue data");
+		return -ENOMEM;
+	}
+
+	// Allocate DMA ring
+	size_t ring_elements = rte_align32pow2(nb_desc);
+	size_t ring_size = TX_DESC_SIZE * ring_elements;
+	const struct rte_memzone *ring = rte_eth_dma_zone_reserve(dev, "tx_ring",
+	                                                    queue_idx, ring_size,
+	                                                    RTE_CACHE_LINE_SIZE, socket_id);
+	if (!ring) {
+		rte_free(txq);
+		VDPDK_LOG(ERR,
+		          "Failed to allocate DMA memory for TX ring "
+		          "(nb_desc = 0x%x, ring_elements = 0x%zx, size = 0x%zx)",
+		          (unsigned)nb_desc, ring_elements, ring_size);
+		return -ENOMEM;
+	}
+
+	txq->private_data = dev->data->dev_private;
+	txq->ring = ring;
+
+	dev->data->tx_queues[queue_idx] = txq;
 	return 0;
 }
 
@@ -198,6 +251,19 @@ vdpdk_rx_queue_release(struct rte_eth_dev *dev, uint16_t rx_queue_id) {
 static void
 vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
 	VDPDK_TRACE("queue: %d", (int)tx_queue_id);
+
+	struct vdpdk_tx_queue *txq = dev->data->tx_queues[tx_queue_id];
+	if (!txq) {
+		return;
+	}
+
+	if (txq->ring) {
+		rte_eth_dma_zone_free(dev, "tx_ring", tx_queue_id);
+		txq->ring = NULL;
+	}
+
+	rte_free(txq);
+	dev->data->tx_queues[tx_queue_id] = NULL;
 }
 
 static uint16_t
