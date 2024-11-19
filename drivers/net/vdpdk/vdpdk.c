@@ -38,6 +38,9 @@ static int vdpdk_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id);
 static int vdpdk_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 static int vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 
+static void vdpdk_rx_queue_release(struct rte_eth_dev *dev, uint16_t rx_queue_id);
+static void vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id);
+
 static uint16_t
 vdpdk_recv_pkts(void *rx_queue,
 	      struct rte_mbuf **rx_pkts,
@@ -82,9 +85,9 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.tx_queue_start               = vdpdk_tx_queue_start,
 	.tx_queue_stop                = vdpdk_tx_queue_stop,
 	.rx_queue_setup               = vdpdk_rx_queue_setup,
-	// .rx_queue_release             = vdpdk_dev_rx_queue_release,
+	.rx_queue_release             = vdpdk_rx_queue_release,
 	.tx_queue_setup               = vdpdk_tx_queue_setup,
-	// .tx_queue_release             = vdpdk_dev_tx_queue_release,
+	.tx_queue_release             = vdpdk_tx_queue_release,
 	.link_update                  = vdpdk_link_update,
 };
 
@@ -185,6 +188,16 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 	if (queue_idx != 0) return -EINVAL;
 	dev->data->tx_queues[0] = dev->data->dev_private;
 	return 0;
+}
+
+static void
+vdpdk_rx_queue_release(struct rte_eth_dev *dev, uint16_t rx_queue_id) {
+	VDPDK_TRACE("queue: %d", (int)rx_queue_id);
+}
+
+static void
+vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
+	VDPDK_TRACE("queue: %d", (int)tx_queue_id);
 }
 
 static uint16_t
