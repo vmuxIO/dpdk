@@ -1,3 +1,4 @@
+#include "generic/rte_io.h"
 #include <rte_pci.h>
 #include <ethdev_driver.h>
 #include <ethdev_pci.h>
@@ -53,6 +54,8 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
 enum VDPDK_OFFSET {
 	DEBUG_STRING = 0x0,
+	TX_QUEUE_START = 0x40,
+	TX_QUEUE_STOP = 0x80,
 };
 
 enum VDPDK_CONSTS {
@@ -76,6 +79,9 @@ struct vdpdk_private_data {
 struct vdpdk_tx_queue {
 	struct vdpdk_private_data *private_data;
 	const struct rte_memzone *ring;
+
+	uint16_t idx_mask;
+	uint16_t idx;
 };
 
 struct vdpdk_tx_desc {
@@ -235,11 +241,19 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 		          (unsigned)nb_desc, ring_elements, ring_size);
 		return -ENOMEM;
 	}
+	memset(ring->addr, 0, ring_size);
 
 	txq->private_data = dev->data->dev_private;
 	txq->ring = ring;
+	txq->idx = 0;
+	txq->idx_mask = ring_elements - 1;
 
 	dev->data->tx_queues[queue_idx] = txq;
+
+	rte_write64_relaxed(ring->iova, txq->private_data->tx);
+	rte_write16_relaxed(txq->idx_mask, txq->private_data->tx + 8);
+	rte_write16(queue_idx, txq->private_data->signal + TX_QUEUE_START);
+
 	return 0;
 }
 
@@ -256,6 +270,8 @@ vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
 	if (!txq) {
 		return;
 	}
+
+	rte_write16(tx_queue_id, txq->private_data->signal + TX_QUEUE_STOP);
 
 	if (txq->ring) {
 		rte_eth_dma_zone_free(dev, "tx_ring", tx_queue_id);
