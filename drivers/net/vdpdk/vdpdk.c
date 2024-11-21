@@ -388,7 +388,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 			break;
 		}
 
-		struct vdpdk_tx_desc *desc = ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE;
+		struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE);
 		uint16_t flags = rte_read16(&desc->flags);
 
 		// If FLAG_AVAIL is set, all descriptors are filled
@@ -434,7 +434,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 		// First, we skip the group of descriptors in use by vmux
 		for (; clean_idx != end_idx; clean_idx--) {
-			struct vdpdk_tx_desc *desc = ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE;
+			struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE);
 			uint16_t flags = rte_read16(&desc->flags);
 			if (!(flags & TX_FLAG_AVAIL)) {
 				break;
@@ -444,7 +444,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 		// Now, clean_idx is either end_idx, or points to a descriptor we own
 		// Free buffers until we find a descriptor that was already freed
 		for (; clean_idx != end_idx; clean_idx--) {
-			struct vdpdk_tx_desc *desc = ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE;
+			struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE);
 
 			// TODO: remove
 			assert(desc->flags == 0);
