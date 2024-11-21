@@ -1,4 +1,3 @@
-#include "generic/rte_io.h"
 #include <rte_pci.h>
 #include <ethdev_driver.h>
 #include <ethdev_pci.h>
@@ -64,6 +63,7 @@ enum VDPDK_CONSTS {
 	MAX_PKT_LEN = PKT_SIGNAL_OFF,
 	MAX_RX_DESCS = 256,
 	TX_DESC_SIZE = 0x20,
+	TX_FLAG_AVAIL = 1,
 };
 
 struct vdpdk_private_data {
@@ -356,61 +356,50 @@ vdpdk_recv_pkts(void *rx_queue,
 
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
-	struct vdpdk_private_data *regs = tx_queue;
-	uint8_t *lock = regs->tx + PKT_SIGNAL_OFF;
-
-	unsigned char *ptr = regs->tx;
-	unsigned char *end = ptr + MAX_PKT_LEN;
-	const size_t addr_size = sizeof(uintptr_t);
-
-	while (rte_read8(lock) != 1);
+	struct vdpdk_tx_queue *txq = tx_queue;
+	unsigned char *ring = txq->ring->addr;
 
 	unsigned i;
 	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
 
-		if (ptr + 2 + addr_size > end) {
-			break;
-		}
-
-		uint16_t pkt_len = seg->pkt_len;
-
 		// TODO:
 		if (seg->next != NULL) {
 			break;
 		}
-		// while (seg != NULL) {
-		// 	rte_memcpy(data_ptr, rte_pktmbuf_mtod(seg, void *), seg->data_len);
-		// 	data_ptr += seg->data_len;
-		// 	struct rte_mbuf *next = seg->next;
-		// 	rte_pktmbuf_free_seg(seg);
-		// 	seg = next;
-		// }
 
-		ptr[0] = pkt_len;
-		ptr[1] = pkt_len >> 8;
-		ptr += 2;
+		struct vdpdk_tx_desc *desc = ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE;
+		uint16_t flags = rte_read16(&desc->flags);
 
-		uintptr_t dma_addr = rte_pktmbuf_iova(seg);
-		rte_memcpy(ptr, &dma_addr, addr_size);
-		ptr += addr_size;
+		// If FLAG_AVAIL is set, all descriptors are filled
+		if (flags & TX_FLAG_AVAIL) {
+			break;
+		}
+
+		// FLAG_AVAIL is not set, therefore vdpdk owns the descriptor
+
+		// Free descriptor
+		if (desc->buf) {
+			rte_pktmbuf_free(desc->buf);
+			desc->buf = NULL;
+		}
+
+		// Fill with data
+		desc->buf = seg;
+		desc->dma_addr = rte_pktmbuf_iova(seg);
+		desc->len = seg->data_len;
+
+		// Set FLAG_AVAIL to give buffer to vmux
+		flags |= TX_FLAG_AVAIL;
+		rte_write16(flags, &desc->flags);
+
+		// Go to next descriptor
+		txq->idx++;
 	}
 
-	// sentinel packet length
-	if (ptr + 2 + addr_size <= end) {
-		ptr[0] = 0;
-		ptr[1] = 0;
-	}
+	// TODO: free in bulk if below threshold
 
-	rte_write8(0, lock);
-
-	unsigned success_pkts = i;
-
-	//TODO: for now we wait here until packets were sent so we can clean up
-	while (rte_read8(lock) != 1);
-	rte_pktmbuf_free_bulk(tx_pkts, success_pkts);
-
-	return success_pkts;
+	return i;
 }
 
 static int
