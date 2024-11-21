@@ -67,6 +67,8 @@ enum VDPDK_CONSTS {
 	MAX_RX_DESCS = 256,
 	TX_DESC_SIZE = 0x20,
 	TX_FLAG_AVAIL = 1,
+
+	DEFAULT_TX_FREE_THRESH = 32,
 };
 
 struct vdpdk_private_data {
@@ -151,7 +153,7 @@ vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	};
 
 	dev_info->default_txconf = (struct rte_eth_txconf) {
-		.tx_free_thresh = 32,
+		.tx_free_thresh = DEFAULT_TX_FREE_THRESH,
 	};
 
 	return 0;
@@ -262,7 +264,9 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 	txq->idx_mask = ring_elements - 1;
 
 	txq->alloc_descs = 0;
-	txq->tx_free_thresh = tx_conf->tx_free_thresh;
+	txq->tx_free_thresh = tx_conf->tx_free_thresh ? tx_conf->tx_free_thresh : DEFAULT_TX_FREE_THRESH;
+
+	VDPDK_TRACE("queue: %d, tx_free_thresh: %d", (int)queue_idx, (int)tx_conf->tx_free_thresh);
 
 	dev->data->tx_queues[queue_idx] = txq;
 
