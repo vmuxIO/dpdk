@@ -6,6 +6,9 @@
 #include <rte_io.h>
 #include <rte_log.h>
 
+// TODO: remove
+#include <assert.h>
+
 extern int vdpdk_log;
 
 #define VDPDK_LOG(level, fmt, ...) rte_log(RTE_LOG_##level, vdpdk_log, "%s(): " fmt "\n", __func__, ## __VA_ARGS__)
@@ -82,6 +85,12 @@ struct vdpdk_tx_queue {
 
 	uint16_t idx_mask;
 	uint16_t idx;
+
+	// Number of descriptors with an associated allocated buffer
+	uint32_t alloc_descs;
+
+	// DPDK TX configuration
+	uint16_t tx_free_thresh;
 };
 
 struct vdpdk_tx_desc {
@@ -139,6 +148,10 @@ vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 		.nb_max = MAX_RX_DESCS,
 		.nb_min = 64,
 		.nb_align = 32,
+	};
+
+	dev_info->default_txconf = (struct rte_eth_txconf) {
+		.tx_free_thresh = 32,
 	};
 
 	return 0;
@@ -247,6 +260,9 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 	txq->ring = ring;
 	txq->idx = 0;
 	txq->idx_mask = ring_elements - 1;
+
+	txq->alloc_descs = 0;
+	txq->tx_free_thresh = tx_conf->tx_free_thresh;
 
 	dev->data->tx_queues[queue_idx] = txq;
 
@@ -382,12 +398,14 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 		if (desc->buf) {
 			rte_pktmbuf_free(desc->buf);
 			desc->buf = NULL;
+			txq->alloc_descs--;
 		}
 
 		// Fill with data
 		desc->buf = seg;
 		desc->dma_addr = rte_pktmbuf_iova(seg);
 		desc->len = seg->data_len;
+		txq->alloc_descs++;
 
 		// Set FLAG_AVAIL to give buffer to vmux
 		flags |= TX_FLAG_AVAIL;
@@ -397,7 +415,45 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 		txq->idx++;
 	}
 
-	// TODO: free in bulk if below threshold
+	// Clean ring if alloced buffers exceeds threshold
+	if (txq->alloc_descs >= txq->tx_free_thresh) {
+		// Our ring should look like this:
+		// * group of free descriptors
+		// * group of descriptors with allocated mbuf
+		// * group of descriptors in use by vmux
+		// txq->idx points to the descriptor right after that
+
+		// We scan backwards for free-able descriptors
+		uint16_t clean_idx = txq->idx - 1;
+		// If we walked backwards through the whole ring, we are definitely done
+		uint16_t end_idx = txq->idx - txq->idx_mask - 1;
+
+		// First, we skip the group of descriptors in use by vmux
+		for (; clean_idx != end_idx; clean_idx--) {
+			struct vdpdk_tx_desc *desc = ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE;
+			uint16_t flags = rte_read16(&desc->flags);
+			if (!(flags & TX_FLAG_AVAIL)) {
+				break;
+			}
+		}
+
+		// Now, clean_idx is either end_idx, or points to a descriptor we own
+		// Free buffers until we find a descriptor that was already freed
+		for (; clean_idx != end_idx; clean_idx--) {
+			struct vdpdk_tx_desc *desc = ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE;
+
+			// TODO: remove
+			assert(desc->flags == 0);
+
+			if (!desc->buf) {
+				break;
+			}
+
+			rte_pktmbuf_free(desc->buf);
+			desc->buf = NULL;
+			txq->alloc_descs--;
+		}
+	}
 
 	return i;
 }
