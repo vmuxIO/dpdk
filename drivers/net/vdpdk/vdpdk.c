@@ -58,6 +58,9 @@ enum VDPDK_OFFSET {
 	DEBUG_STRING = 0x0,
 	TX_QUEUE_START = 0x40,
 	TX_QUEUE_STOP = 0x80,
+
+	RX_QUEUE_START = 0x140,
+	RX_QUEUE_STOP = 0x180,
 };
 
 enum VDPDK_CONSTS {
@@ -65,8 +68,12 @@ enum VDPDK_CONSTS {
 	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
 	MAX_PKT_LEN = PKT_SIGNAL_OFF,
 	MAX_RX_DESCS = 256,
+
 	TX_DESC_SIZE = 0x20,
 	TX_FLAG_AVAIL = 1,
+
+	RX_DESC_SIZE = 0x20,
+	RX_FLAG_AVAIL = 1,
 
 	DEFAULT_TX_FREE_THRESH = 32,
 };
@@ -75,10 +82,6 @@ struct vdpdk_private_data {
 	unsigned char *signal;
 	unsigned char *tx;
 	unsigned char *rx;
-
-	struct rte_mempool *rx_pool;
-	struct rte_mbuf *rx_bufs[MAX_RX_DESCS];
-	unsigned rx_buf_count;
 };
 
 struct vdpdk_tx_queue {
@@ -108,6 +111,30 @@ static_assert(sizeof(struct vdpdk_tx_desc) <= TX_DESC_SIZE, "vdpdk tx descriptor
 static_assert(offsetof(struct vdpdk_tx_desc, dma_addr) == 0, "vdpdk tx descriptor: unexpected offset");
 static_assert(offsetof(struct vdpdk_tx_desc, len) == 8, "vdpdk tx descriptor: unexpected offset");
 static_assert(offsetof(struct vdpdk_tx_desc, flags) == 10, "vdpdk tx descriptor: unexpected offset");
+
+struct vdpdk_rx_queue {
+	struct vdpdk_private_data *private_data;
+	const struct rte_memzone *ring;
+
+	uint16_t idx_mask;
+	uint16_t front_idx, back_idx;
+
+	struct rte_mempool *pool;
+};
+
+struct vdpdk_rx_desc {
+	union {
+		uintptr_t dma_addr;
+		uint64_t _pad;
+	};
+	uint16_t len;
+	uint16_t flags;
+	struct rte_mbuf *buf;
+};
+static_assert(sizeof(struct vdpdk_rx_desc) <= RX_DESC_SIZE, "vdpdk rx descriptor: invalid size");
+static_assert(offsetof(struct vdpdk_rx_desc, dma_addr) == 0, "vdpdk rx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_rx_desc, len) == 8, "vdpdk rx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_rx_desc, flags) == 10, "vdpdk rx descriptor: unexpected offset");
 
 static const struct rte_pci_id pci_id_vdpdk_map[] = {
 	{ RTE_PCI_DEVICE(0x1af4, 0x7abc) },
@@ -208,16 +235,74 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		   struct rte_mempool *mp) {
 	VDPDK_TRACE("queue: %d, nb_desc: %d", (int)queue_idx, (int)nb_desc);
 	if (queue_idx != 0) return -EINVAL;
-	dev->data->rx_queues[0] = dev->data->dev_private;
-	struct vdpdk_private_data *data = dev->data->dev_private;
-	data->rx_pool = mp;
-	if (nb_desc < 64 || nb_desc > MAX_RX_DESCS) {
-		return -EINVAL;
+
+	// Free previous queue data
+	if (dev->data->rx_queues[queue_idx]) {
+		vdpdk_rx_queue_release(dev, queue_idx);
 	}
-	if (rte_pktmbuf_alloc_bulk(mp, data->rx_bufs, nb_desc) != 0) {
+
+	// Allocate private queue data
+	struct vdpdk_rx_queue *rxq = rte_zmalloc_socket("VDPDK_RX_QUEUE", sizeof(*rxq), 0, socket_id);
+	if (!rxq) {
+		VDPDK_LOG(ERR, "Failed to allocate memory for rx queue data");
 		return -ENOMEM;
 	}
-	data->rx_buf_count = nb_desc;
+
+	// Allocate DMA ring
+	size_t ring_elements = rte_align32pow2(nb_desc);
+	size_t ring_size = RX_DESC_SIZE * ring_elements;
+	const struct rte_memzone *ring = rte_eth_dma_zone_reserve(dev, "rx_ring",
+	                                                          queue_idx, ring_size,
+	                                                        RTE_CACHE_LINE_SIZE, socket_id);
+	if (!ring) {
+		rte_free(rxq);
+		VDPDK_LOG(ERR,
+		          "Failed to allocate DMA memory for RX ring "
+		          "(nb_desc = 0x%x, ring_elements = 0x%zx, size = 0x%zx)",
+		          (unsigned)nb_desc, ring_elements, ring_size);
+		return -ENOMEM;
+	}
+	memset(ring->addr, 0, ring_size);
+
+	// Allocate mbufs
+	struct rte_mbuf **tmp = rte_malloc_socket(NULL, sizeof(*tmp) * nb_desc, __alignof__(*tmp), socket_id);
+	if (!tmp) {
+		rte_free(rxq);
+		rte_eth_dma_zone_free(dev, "rx_ring", queue_idx);
+		VDPDK_LOG(ERR, "Failed to allocate memory buffers");
+		return -ENOMEM;
+	}
+	if (rte_pktmbuf_alloc_bulk(mp, tmp, nb_desc) != 0) {
+		rte_free(tmp);
+		rte_free(rxq);
+		rte_eth_dma_zone_free(dev, "rx_ring", queue_idx);
+		VDPDK_LOG(ERR, "Failed to allocate memory buffers");
+		return -ENOMEM;
+	}
+	for (size_t i = 0; i < nb_desc; i++) {
+		struct vdpdk_rx_desc *desc = (struct vdpdk_rx_desc *)((char *)ring->addr + i * RX_DESC_SIZE);
+		desc->buf = tmp[i];
+		desc->dma_addr = rte_pktmbuf_iova(desc->buf);
+		desc->len = rte_pktmbuf_tailroom(desc->buf);
+		desc->flags = RX_FLAG_AVAIL;
+	}
+	rte_free(tmp);
+
+	// Set queue data
+	rxq->private_data = dev->data->dev_private;
+	rxq->ring = ring;
+	rxq->front_idx = 0;
+	rxq->back_idx = nb_desc;
+	rxq->idx_mask = ring_elements - 1;
+	rxq->pool = mp;
+
+	dev->data->rx_queues[queue_idx] = rxq;
+
+	// Signal queue creation
+	rte_write64_relaxed(ring->iova, rxq->private_data->rx);
+	rte_write16_relaxed(rxq->idx_mask, rxq->private_data->rx + 8);
+	rte_write16(queue_idx, rxq->private_data->signal + RX_QUEUE_START);
+
 	return 0;
 }
 
@@ -258,6 +343,7 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 	}
 	memset(ring->addr, 0, ring_size);
 
+	// Set queue data
 	txq->private_data = dev->data->dev_private;
 	txq->ring = ring;
 	txq->idx = 0;
@@ -270,6 +356,7 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 
 	dev->data->tx_queues[queue_idx] = txq;
 
+	// Signal queue creation
 	rte_write64_relaxed(ring->iova, txq->private_data->tx);
 	rte_write16_relaxed(txq->idx_mask, txq->private_data->tx + 8);
 	rte_write16(queue_idx, txq->private_data->signal + TX_QUEUE_START);
@@ -280,6 +367,21 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 static void
 vdpdk_rx_queue_release(struct rte_eth_dev *dev, uint16_t rx_queue_id) {
 	VDPDK_TRACE("queue: %d", (int)rx_queue_id);
+
+	struct vdpdk_rx_queue *rxq = dev->data->rx_queues[rx_queue_id];
+	if (!rxq) {
+		return;
+	}
+
+	rte_write16(rx_queue_id, rxq->private_data->signal + RX_QUEUE_STOP);
+
+	if (rxq->ring) {
+		rte_eth_dma_zone_free(dev, "rx_ring", rx_queue_id);
+		rxq->ring = NULL;
+	}
+
+	rte_free(rxq);
+	dev->data->rx_queues[rx_queue_id] = NULL;
 }
 
 static void
@@ -306,69 +408,55 @@ static uint16_t
 vdpdk_recv_pkts(void *rx_queue,
 	      struct rte_mbuf **rx_pkts,
 	      uint16_t nb_pkts) {
-	struct vdpdk_private_data *regs = rx_queue;
-	uint8_t *lock = regs->rx + PKT_SIGNAL_OFF;
+	struct vdpdk_rx_queue *rxq = rx_queue;
+	unsigned char *ring = rxq->ring->addr;
 
-	unsigned char *ptr = regs->rx;
-	unsigned char *end = ptr + MAX_PKT_LEN;
-	const size_t addr_size = sizeof(uintptr_t);
-
-	if (nb_pkts > regs->rx_buf_count) {
-		nb_pkts = regs->rx_buf_count;
-	}
-
-	while (rte_read8(lock) != 1);
-
-	for (unsigned i = 0; i < nb_pkts; i++) {
-		if (ptr + 2 + addr_size > end) {
-			break;
-		}
-
-		struct rte_mbuf *buf = regs->rx_bufs[i];
-
-		uint16_t max_len = rte_pktmbuf_tailroom(buf);
-		ptr[0] = max_len;
-		ptr[1] = max_len >> 8;
-		ptr += 2;
-
-		uintptr_t dma_addr = rte_pktmbuf_iova(buf);
-		rte_memcpy(ptr, &dma_addr, addr_size);
-		ptr += addr_size;
-	}
-
-	if (ptr + 2 + addr_size <= end) {
-		ptr[0] = 0;
-		ptr[1] = 0;
-	}
-
-	rte_write8(0, lock);
-	while (rte_read8(lock) != 1);
-
-	ptr = regs->rx;
 	unsigned i;
 	for (i = 0; i < nb_pkts; i++) {
-		if (ptr + 2 + addr_size > end) {
+		struct vdpdk_rx_desc *desc = (struct vdpdk_rx_desc *)(ring + (size_t)(rxq->front_idx & rxq->idx_mask) * RX_DESC_SIZE);
+		uint16_t flags = rte_read16(&desc->flags);
+
+		// If FLAG_AVAIL is set, buffer has not been filled by vmux yet
+		// and no more packets are available to be received
+		if (flags & RX_FLAG_AVAIL) {
 			break;
 		}
 
-		uint16_t pkt_len = ptr[0] | ((uint16_t)ptr[1] << 8);
-		ptr += 2 + addr_size;
-
-		if (pkt_len == 0) {
-			break;
-		}
-
-		struct rte_mbuf *new_buf = rte_pktmbuf_alloc(regs->rx_pool);
+		// Ensure we can allocate a new buffer before modifying the ring
+		struct rte_mbuf *new_buf = rte_pktmbuf_alloc(rxq->pool);
 		if (!new_buf) {
 			break;
 		}
 
-		rx_pkts[i] = regs->rx_bufs[i];
-		rx_pkts[i]->data_len = pkt_len;
-		rx_pkts[i]->pkt_len = pkt_len;
-		rx_pkts[i]->nb_segs = 1;
-		rx_pkts[i]->next = NULL;
-		regs->rx_bufs[i] = new_buf;
+		// FLAG_AVAIL is not set, therefore vdpdk owns the descriptor
+
+		// Update buffer and return it to caller
+		struct rte_mbuf *buf = desc->buf;
+		buf->data_len = desc->len;
+		buf->pkt_len = desc->len;
+		buf->nb_segs = 1;
+		buf->next = NULL;
+		rx_pkts[i] = buf;
+		desc->buf = NULL;
+
+		// Go to next descriptor
+		rxq->front_idx++;
+
+		// Enqueue new buffer at the back of queue
+		// The descriptor pointed to by back_idx should always be free,
+		// because at this point there is always at least one free descriptor
+		struct vdpdk_rx_desc *new_desc = (struct vdpdk_rx_desc *)(ring + (size_t)(rxq->back_idx & rxq->idx_mask) * RX_DESC_SIZE);
+
+		// TODO: remove assertion
+		assert(!(new_desc->flags & RX_FLAG_AVAIL) && new_desc->buf == NULL);
+
+		new_desc->buf = new_buf;
+		new_desc->dma_addr = rte_pktmbuf_iova(new_buf);
+		new_desc->len = rte_pktmbuf_tailroom(new_buf);
+		flags = RX_FLAG_AVAIL;
+		rte_write16(flags, &new_desc->flags);
+
+		rxq->back_idx++;
 	}
 
 	return i;
