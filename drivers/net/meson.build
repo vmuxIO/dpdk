@@ -58,6 +58,7 @@ drivers = [
         'thunderx',
         'txgbe',
         'vdev_netvsc',
+        'vdpdk',
         'vhost',
         'virtio',
         'vmxnet3',
