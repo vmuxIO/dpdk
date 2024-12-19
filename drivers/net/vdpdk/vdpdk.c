@@ -170,7 +170,7 @@ vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	VDPDK_TRACE();
 	dev_info->min_rx_bufsize = 1024;
 	dev_info->max_rx_pktlen = 9728;
-	dev_info->max_rx_queues = 1;
+	dev_info->max_rx_queues = 4;
 	dev_info->max_tx_queues = 1;
 
 	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
@@ -237,7 +237,7 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		   const struct rte_eth_rxconf *rx_conf,
 		   struct rte_mempool *mp) {
 	VDPDK_TRACE("queue: %d, nb_desc: %d", (int)queue_idx, (int)nb_desc);
-	if (queue_idx != 0) return -EINVAL;
+	if (queue_idx >= 4) return -EINVAL;
 
 	// Free previous queue data
 	if (dev->data->rx_queues[queue_idx]) {
