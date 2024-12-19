@@ -168,7 +168,6 @@ static int
 vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 {
 	VDPDK_TRACE();
-	*dev_info = (struct rte_eth_dev_info){};
 	dev_info->min_rx_bufsize = 1024;
 	dev_info->max_rx_pktlen = 9728;
 	dev_info->max_rx_queues = 1;
