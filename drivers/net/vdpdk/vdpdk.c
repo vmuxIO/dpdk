@@ -574,6 +574,13 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 		return -ENOTSUP;
 	}
 
+	dev->data->mac_addrs = rte_zmalloc(NULL, sizeof(struct rte_ether_addr), 0);
+	if (!dev->data->mac_addrs) {
+		VDPDK_LOG(ERR, "Failed to allocate MAC address memory.");
+		return -ENOMEM;
+	}
+	rte_ether_unformat_addr("90:e2:ba:c3:79:66", dev->data->mac_addrs);
+
 	void *dkaddr = pci_dev->mem_resource[0].addr;
 	char dkbuf[100] = {0};
 
