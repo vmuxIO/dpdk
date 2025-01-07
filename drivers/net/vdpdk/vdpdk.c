@@ -61,6 +61,11 @@ static int vdpdk_flow_validate(struct rte_eth_dev *dev,
                                const struct rte_flow_item pattern[],
                                const struct rte_flow_action actions[],
                                struct rte_flow_error *error);
+static struct rte_flow *vdpdk_flow_create(struct rte_eth_dev *dev,
+                               const struct rte_flow_attr *attr,
+                               const struct rte_flow_item pattern[],
+                               const struct rte_flow_action actions[],
+                               struct rte_flow_error *error);
 
 enum VDPDK_OFFSET {
 	DEBUG_STRING = 0x0,
@@ -169,6 +174,7 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 
 static const struct rte_flow_ops vdpdk_rte_flow_ops = {
 	.validate = vdpdk_flow_validate,
+	.create   = vdpdk_flow_create,
 };
 
 static int
@@ -620,6 +626,17 @@ vdpdk_flow_validate(struct rte_eth_dev *dev,
 	}
 
 	return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_UNSPECIFIED, NULL, "dummy flow impl");
+}
+
+static struct rte_flow *
+vdpdk_flow_create(struct rte_eth_dev *dev,
+                    const struct rte_flow_attr *attr,
+                    const struct rte_flow_item pattern[],
+                    const struct rte_flow_action actions[],
+                    struct rte_flow_error *error)
+{
+	vdpdk_flow_validate(dev, attr, pattern, actions, error);
+	return NULL;
 }
 
 static int
