@@ -3,6 +3,7 @@
 #include <ethdev_pci.h>
 #include <bus_pci_driver.h>
 #include <rte_common.h>
+#include <rte_flow_driver.h>
 #include <rte_io.h>
 #include <rte_log.h>
 
@@ -53,6 +54,13 @@ vdpdk_recv_pkts(void *rx_queue,
 
 static uint16_t
 vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
+
+static int vdpdk_flow_ops_get(struct rte_eth_dev *dev, const struct rte_flow_ops **ops);
+static int vdpdk_flow_validate(struct rte_eth_dev *dev,
+                               const struct rte_flow_attr *attr,
+                               const struct rte_flow_item pattern[],
+                               const struct rte_flow_action actions[],
+                               struct rte_flow_error *error);
 
 enum VDPDK_OFFSET {
 	DEBUG_STRING = 0x0,
@@ -155,6 +163,12 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.tx_queue_setup               = vdpdk_tx_queue_setup,
 	.tx_queue_release             = vdpdk_tx_queue_release,
 	.link_update                  = vdpdk_link_update,
+
+	.flow_ops_get                 = vdpdk_flow_ops_get,
+};
+
+static const struct rte_flow_ops vdpdk_rte_flow_ops = {
+	.validate = vdpdk_flow_validate,
 };
 
 static int
@@ -186,6 +200,15 @@ vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	// TODO
 	dev_info->max_mtu = 2000;
 
+	return 0;
+}
+
+static int
+vdpdk_flow_ops_get(struct rte_eth_dev *dev, const struct rte_flow_ops **ops)
+{
+	if (!dev)
+		return -EINVAL;
+	*ops = &vdpdk_rte_flow_ops;
 	return 0;
 }
 
@@ -558,6 +581,45 @@ vdpdk_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
 	VDPDK_TRACE();
 	return 0;
+}
+
+static int
+vdpdk_flow_validate(struct rte_eth_dev *dev,
+                    const struct rte_flow_attr *attr,
+                    const struct rte_flow_item pattern[],
+                    const struct rte_flow_action actions[],
+                    struct rte_flow_error *error)
+{
+	VDPDK_TRACE();
+
+	if (!attr) {
+		return rte_flow_error_set(error, EINVAL, RTE_FLOW_ERROR_TYPE_ATTR, NULL, "NULL attribute.");
+	}
+
+	VDPDK_TRACE("attr: group: %"PRIu32" priority: %"PRIu32" ingress: %"PRIu32" egress: %"PRIu32" transfer: %"PRIu32,
+	            attr->group, attr->priority, attr->ingress, attr->egress, attr->transfer);
+
+	if (!pattern) {
+		return rte_flow_error_set(error, EINVAL, RTE_FLOW_ERROR_TYPE_ITEM_NUM, NULL, "NULL pattern.");
+	}
+
+	for (const struct rte_flow_item *item = pattern; item->type != RTE_FLOW_ITEM_TYPE_END; item++) {
+		const char *str = NULL;
+		rte_flow_conv(RTE_FLOW_CONV_OP_ITEM_NAME_PTR, &str, sizeof(str), (const void *)item->type, NULL);
+		VDPDK_TRACE("item: %s", str);
+	}
+
+	if (!actions) {
+		return rte_flow_error_set(error, EINVAL, RTE_FLOW_ERROR_TYPE_ACTION_NUM, NULL, "NULL actions.");
+	}
+
+	for (const struct rte_flow_action *action = actions; action->type != RTE_FLOW_ACTION_TYPE_END; action++) {
+		const char *str = NULL;
+		rte_flow_conv(RTE_FLOW_CONV_OP_ACTION_NAME_PTR, &str, sizeof(str), (const void *)action->type, NULL);
+		VDPDK_TRACE("action: %s", str);
+	}
+
+	return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_UNSPECIFIED, NULL, "dummy flow impl");
 }
 
 static int
