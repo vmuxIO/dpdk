@@ -7,6 +7,8 @@
 #include <rte_io.h>
 #include <rte_log.h>
 
+#include <sys/queue.h>
+
 // TODO: remove
 #include <assert.h>
 
@@ -66,6 +68,11 @@ static struct rte_flow *vdpdk_flow_create(struct rte_eth_dev *dev,
                                const struct rte_flow_item pattern[],
                                const struct rte_flow_action actions[],
                                struct rte_flow_error *error);
+static int vdpdk_flow_destroy(struct rte_eth_dev *dev,
+                              struct rte_flow *flow,
+                              struct rte_flow_error *error);
+static int vdpdk_flow_flush(struct rte_eth_dev *dev,
+                              struct rte_flow_error *error);
 
 enum VDPDK_OFFSET {
 	DEBUG_STRING = 0x0,
@@ -74,6 +81,9 @@ enum VDPDK_OFFSET {
 
 	RX_QUEUE_START = 0x140,
 	RX_QUEUE_STOP = 0x180,
+
+	FLOW_CREATE = 0x200,
+	FLOW_DESTROY = 0x240,
 };
 
 enum VDPDK_CONSTS {
@@ -91,10 +101,19 @@ enum VDPDK_CONSTS {
 	DEFAULT_TX_FREE_THRESH = 32,
 };
 
+struct rte_flow {
+	TAILQ_ENTRY(rte_flow) node;
+	uint64_t handle;
+};
+TAILQ_HEAD(vdpdk_flow_list, rte_flow);
+
 struct vdpdk_private_data {
 	unsigned char *signal;
 	unsigned char *tx;
 	unsigned char *rx;
+	unsigned char *flow;
+
+	struct vdpdk_flow_list flow_list;
 };
 
 struct vdpdk_tx_queue {
@@ -175,6 +194,8 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 static const struct rte_flow_ops vdpdk_rte_flow_ops = {
 	.validate = vdpdk_flow_validate,
 	.create   = vdpdk_flow_create,
+	.destroy  = vdpdk_flow_destroy,
+	.flush    = vdpdk_flow_flush,
 };
 
 static int
@@ -625,7 +646,27 @@ vdpdk_flow_validate(struct rte_eth_dev *dev,
 		VDPDK_TRACE("action: %s", str);
 	}
 
-	return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_UNSPECIFIED, NULL, "dummy flow impl");
+	// For now we support only simple rules with one ETH item and one QUEUE action
+
+	// Check pattern length
+	if (!pattern || pattern[0].type == RTE_FLOW_ITEM_TYPE_END || pattern[1].type != RTE_FLOW_ITEM_TYPE_END) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ITEM_NUM, NULL, "Only patterns with one item are supported.");
+	}
+	// Check pattern type
+	if (pattern[0].type != RTE_FLOW_ITEM_TYPE_ETH) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ITEM, &pattern[0], "Only ETH matching is supported.");
+	}
+
+	// Check actions length
+	if (!actions || actions[0].type == RTE_FLOW_ACTION_TYPE_END || actions[1].type != RTE_FLOW_ACTION_TYPE_END) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ACTION_NUM, NULL, "Only actions with one action are supported.");
+	}
+	// Check action type
+	if (actions[0].type != RTE_FLOW_ACTION_TYPE_QUEUE) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ITEM, &pattern[0], "Only the QUEUE action is supported.");
+	}
+
+	return 0;
 }
 
 static struct rte_flow *
@@ -635,8 +676,100 @@ vdpdk_flow_create(struct rte_eth_dev *dev,
                     const struct rte_flow_action actions[],
                     struct rte_flow_error *error)
 {
-	vdpdk_flow_validate(dev, attr, pattern, actions, error);
-	return NULL;
+	if (vdpdk_flow_validate(dev, attr, pattern, actions, error) != 0) {
+		return NULL;
+	}
+
+	struct rte_flow *flow = rte_zmalloc("vdpdk_flow", sizeof(*flow), 0);
+	if (!flow) {
+		rte_flow_error_set(error, ENOMEM, RTE_FLOW_ERROR_TYPE_HANDLE, NULL, "Failed to allocate memory.");
+		return NULL;
+	}
+
+	// Validation ensured we have exactly one item of type ETH and one action of type QUEUE
+
+	static_assert(sizeof(*attr) + sizeof(struct rte_flow_item_eth) * 3 + sizeof(struct rte_flow_action_queue) + 2 <= 0x1000, "flow memory area too small");
+
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	unsigned char *dst = priv->flow;
+
+	rte_memcpy(dst, attr, sizeof(*attr));
+	dst += sizeof(*attr);
+
+	uint8_t null_flags = 0;
+	null_flags |= pattern[0].spec != NULL;
+	null_flags |= (pattern[0].last != NULL) << 1;
+	null_flags |= (pattern[0].mask != NULL) << 2;
+	*dst++ = null_flags;
+
+	if (pattern[0].spec) {
+		rte_memcpy(dst, pattern[0].spec, sizeof(struct rte_flow_item_eth));
+		dst += sizeof(struct rte_flow_item_eth);
+	}
+	if (pattern[0].last) {
+		rte_memcpy(dst, pattern[0].last, sizeof(struct rte_flow_item_eth));
+		dst += sizeof(struct rte_flow_item_eth);
+	}
+	if (pattern[0].mask) {
+		rte_memcpy(dst, pattern[0].mask, sizeof(struct rte_flow_item_eth));
+		dst += sizeof(struct rte_flow_item_eth);
+	}
+
+	null_flags = actions[0].conf != NULL;
+	*dst++ = null_flags;
+
+	if (actions[0].conf) {
+		rte_memcpy(dst, actions[0].conf, sizeof(struct rte_flow_action_queue));
+		dst += sizeof(struct rte_flow_action_queue);
+	}
+
+	// Signal flow creation to vmux and get result
+	rte_io_mb();
+	uint64_t handle = rte_read64(priv->signal + FLOW_CREATE);
+	if (handle == (uint64_t)-1) {
+		rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_UNSPECIFIED, NULL, "vmux error");
+		rte_free(flow);
+		return NULL;
+	}
+	flow->handle = handle;
+
+	TAILQ_INSERT_TAIL(&priv->flow_list, flow, node);
+
+	return flow;
+}
+
+static int
+vdpdk_flow_destroy(struct rte_eth_dev *dev,
+                   struct rte_flow *flow,
+                   struct rte_flow_error *error)
+{
+	// We never pass through errors here
+	(void)error;
+
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	TAILQ_REMOVE(&priv->flow_list, flow, node);
+
+	rte_write64(flow->handle, priv->signal + FLOW_DESTROY);
+	rte_free(flow);
+
+	return 0;
+}
+
+static int
+vdpdk_flow_flush(struct rte_eth_dev *dev, struct rte_flow_error *error)
+{
+	(void)error;
+
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	rte_write64((uint64_t)-1, priv->signal + FLOW_DESTROY);
+
+	struct rte_flow *p;
+	while ((p = TAILQ_LAST(&priv->flow_list, vdpdk_flow_list)) != NULL) {
+		TAILQ_REMOVE(&priv->flow_list, p, node);
+		rte_free(p);
+	}
+
+	return 0;
 }
 
 static int
@@ -684,6 +817,9 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 	regs->signal = pci_dev->mem_resource[0].addr;
 	regs->tx = pci_dev->mem_resource[1].addr;
 	regs->rx = pci_dev->mem_resource[2].addr;
+	regs->flow = pci_dev->mem_resource[3].addr;
+
+	TAILQ_INIT(&regs->flow_list);
 
 	return 0;
 }
