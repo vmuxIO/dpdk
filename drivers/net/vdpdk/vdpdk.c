@@ -646,7 +646,15 @@ vdpdk_flow_validate(struct rte_eth_dev *dev,
 		VDPDK_TRACE("action: %s", str);
 	}
 
-	// For now we support only simple rules with one ETH item and one QUEUE action
+	// For now we support only simple ingress rules with one ETH item and one QUEUE action
+
+	// Check if ingress
+	if (!attr->ingress || attr->egress) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ATTR, NULL, "Only ingress rules are supported.");
+	}
+	if (attr->transfer) {
+		return rte_flow_error_set(error, ENOSYS, RTE_FLOW_ERROR_TYPE_ATTR, NULL, "Transfer rules are not supported.");
+	}
 
 	// Check pattern length
 	if (!pattern || pattern[0].type == RTE_FLOW_ITEM_TYPE_END || pattern[1].type != RTE_FLOW_ITEM_TYPE_END) {
@@ -676,6 +684,7 @@ vdpdk_flow_create(struct rte_eth_dev *dev,
                     const struct rte_flow_action actions[],
                     struct rte_flow_error *error)
 {
+	VDPDK_TRACE();
 	if (vdpdk_flow_validate(dev, attr, pattern, actions, error) != 0) {
 		return NULL;
 	}
@@ -743,6 +752,7 @@ vdpdk_flow_destroy(struct rte_eth_dev *dev,
                    struct rte_flow *flow,
                    struct rte_flow_error *error)
 {
+	VDPDK_TRACE();
 	// We never pass through errors here
 	(void)error;
 
@@ -758,6 +768,7 @@ vdpdk_flow_destroy(struct rte_eth_dev *dev,
 static int
 vdpdk_flow_flush(struct rte_eth_dev *dev, struct rte_flow_error *error)
 {
+	VDPDK_TRACE();
 	(void)error;
 
 	struct vdpdk_private_data *priv = dev->data->dev_private;
