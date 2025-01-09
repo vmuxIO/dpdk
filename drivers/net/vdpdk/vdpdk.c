@@ -355,8 +355,16 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 	// Signal queue creation
 	rte_write64_relaxed(ring->iova, rxq->private_data->rx);
 	rte_write16_relaxed(rxq->idx_mask, rxq->private_data->rx + 8);
-	rte_write16(queue_idx, rxq->private_data->signal + RX_QUEUE_START);
-
+	rte_write16_relaxed(queue_idx, rxq->private_data->rx + 10);
+	rte_io_mb();
+	uint8_t result = rte_read8(rxq->private_data->signal + RX_QUEUE_START);
+	if (result != 0) {
+		VDPDK_LOG(ERR, "vmux failed to setup rx queue %d", (int)queue_idx);
+		rte_eth_dma_zone_free(dev, "rx_ring", queue_idx);
+		dev->data->rx_queues[queue_idx] = NULL;
+		rte_free(rxq);
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -413,8 +421,16 @@ vdpdk_tx_queue_setup(struct rte_eth_dev *dev,
 	// Signal queue creation
 	rte_write64_relaxed(ring->iova, txq->private_data->tx);
 	rte_write16_relaxed(txq->idx_mask, txq->private_data->tx + 8);
-	rte_write16(queue_idx, txq->private_data->signal + TX_QUEUE_START);
-
+	rte_write16_relaxed(queue_idx, txq->private_data->tx + 10);
+	rte_io_mb();
+	uint8_t result = rte_read8(txq->private_data->signal + TX_QUEUE_START);
+	if (result != 0) {
+		VDPDK_LOG(ERR, "vmux failed to setup tx queue %d", (int)queue_idx);
+		rte_eth_dma_zone_free(dev, "tx_ring", queue_idx);
+		dev->data->tx_queues[queue_idx] = NULL;
+		rte_free(txq);
+		return -EINVAL;
+	}
 	return 0;
 }
 
