@@ -315,6 +315,8 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 		          (unsigned)nb_desc, ring_elements, ring_size);
 		return -ENOMEM;
 	}
+	// TODO: turn into trace
+	VDPDK_LOG(INFO, "queue: %d, addr: %p, iova: %"PRIx64", size: %zx", (int)queue_idx, ring->addr, (uint64_t)ring->iova, ring_size);
 	memset(ring->addr, 0, ring_size);
 
 	// Allocate mbufs
