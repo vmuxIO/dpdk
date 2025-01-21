@@ -75,6 +75,7 @@ static int vdpdk_flow_flush(struct rte_eth_dev *dev,
                               struct rte_flow_error *error);
 
 enum VDPDK_OFFSET {
+	// Signal BAR
 	DEBUG_STRING = 0x0,
 	TX_QUEUE_START = 0x40,
 	TX_QUEUE_STOP = 0x80,
@@ -84,12 +85,16 @@ enum VDPDK_OFFSET {
 
 	FLOW_CREATE = 0x200,
 	FLOW_DESTROY = 0x240,
+
+	EVENT_TX = 0x300,
+
+	// TX BAR
+	// 0x0 - 0xFF: Reserved for queue setup
+	TX_WANT_SIGNAL = 0x100,
 };
 
 enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
-	PKT_SIGNAL_OFF = REGION_SIZE - 0x40,
-	MAX_PKT_LEN = PKT_SIGNAL_OFF,
 	MAX_RX_DESCS = 512,
 
 	TX_DESC_SIZE = 0x20,
@@ -615,6 +620,11 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 			desc->buf = NULL;
 			txq->alloc_descs--;
 		}
+	}
+
+	// Check if vmux wants to be signalled
+	if (rte_read8(txq->private_data->tx + TX_WANT_SIGNAL) != 0) {
+		rte_write64(1, txq->private_data->signal + EVENT_TX);
 	}
 
 	return i;
