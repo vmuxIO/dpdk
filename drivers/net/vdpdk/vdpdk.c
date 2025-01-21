@@ -86,11 +86,10 @@ enum VDPDK_OFFSET {
 	FLOW_CREATE = 0x200,
 	FLOW_DESTROY = 0x240,
 
-	EVENT_TX = 0x300,
-
 	// TX BAR
 	// 0x0 - 0xFF: Reserved for queue setup
 	TX_WANT_SIGNAL = 0x100,
+	TX_EVENT_SIGNAL = 0x140,
 };
 
 enum VDPDK_CONSTS {
@@ -624,7 +623,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 	// Check if vmux wants to be signalled
 	if (rte_read8(txq->private_data->tx + TX_WANT_SIGNAL) != 0) {
-		rte_write64(1, txq->private_data->signal + EVENT_TX);
+		rte_write64(1, txq->private_data->tx + TX_EVENT_SIGNAL);
 	}
 
 	return i;
