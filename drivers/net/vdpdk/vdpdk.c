@@ -49,6 +49,9 @@ static int vdpdk_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 static void vdpdk_rx_queue_release(struct rte_eth_dev *dev, uint16_t rx_queue_id);
 static void vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id);
 
+static int vdpdk_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id);
+static int vdpdk_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id);
+
 static uint16_t
 vdpdk_recv_pkts(void *rx_queue,
 	      struct rte_mbuf **rx_pkts,
@@ -91,6 +94,12 @@ enum VDPDK_OFFSET {
 	// TX BAR
 	// 0x0 - 0xFF: Reserved for queue setup
 	TX_WANT_SIGNAL = 0x100,
+
+	// RX BAR
+	// 0x0 - 0xFF: Reserved for queue setup
+
+	// 0x100 - 0x1FF: intr flags
+	RX_WANT_INTR = 0x100, // 0x40 per queue
 };
 
 enum VDPDK_CONSTS {
@@ -191,6 +200,8 @@ static const struct eth_dev_ops vdpdk_eth_dev_ops = {
 	.rx_queue_release             = vdpdk_rx_queue_release,
 	.tx_queue_setup               = vdpdk_tx_queue_setup,
 	.tx_queue_release             = vdpdk_tx_queue_release,
+	.rx_queue_intr_enable         = vdpdk_rx_queue_intr_enable,
+	.rx_queue_intr_disable        = vdpdk_rx_queue_intr_disable,
 	.link_update                  = vdpdk_link_update,
 
 	.flow_ops_get                 = vdpdk_flow_ops_get,
@@ -245,9 +256,45 @@ vdpdk_flow_ops_get(struct rte_eth_dev *dev, const struct rte_flow_ops **ops)
 }
 
 static int
+vdpdk_rxq_intr_setup(struct rte_eth_dev *dev)
+{
+	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	struct rte_intr_handle *intr_handle = pci_dev->intr_handle;
+
+	rte_intr_disable(intr_handle);
+
+	uint32_t num_intrs = dev->data->nb_rx_queues;
+	if (dev->data->dev_conf.intr_conf.rxq) {
+		VDPDK_TRACE("Setup %d intr rx queues", (int)num_intrs);
+		if (rte_intr_efd_enable(intr_handle, num_intrs)) {
+			return -1;
+		}
+	}
+
+	if (rte_intr_dp_is_en(intr_handle)) {
+		if (rte_intr_vec_list_alloc(intr_handle, NULL, num_intrs)) {
+			VDPDK_LOG(ERR, "Failed to allocate %d rx_queues intr_vec", (int)num_intrs);
+			return -ENOMEM;
+		}
+
+		for (unsigned i = 0; i < num_intrs; i++) {
+			rte_intr_vec_list_index_set(intr_handle, i, i);
+		}
+	}
+
+	rte_intr_enable(intr_handle);
+	return 0;
+}
+
+static int
 vdpdk_dev_start(struct rte_eth_dev *dev)
 {
 	VDPDK_TRACE();
+
+	if (vdpdk_rxq_intr_setup(dev)) {
+		return -EIO;
+	}
+
 	return 0;
 }
 
@@ -477,6 +524,24 @@ vdpdk_tx_queue_release(struct rte_eth_dev *dev, uint16_t tx_queue_id) {
 
 	rte_free(txq);
 	dev->data->tx_queues[tx_queue_id] = NULL;
+}
+
+static int
+vdpdk_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
+{
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	struct rte_pci_device *pci_dev = RTE_DEV_TO_PCI(dev->device);
+	rte_write8(1, priv->rx + RX_WANT_INTR + 0x40 * queue_id);
+	rte_intr_ack(pci_dev->intr_handle);
+	return 0;
+}
+
+static int
+vdpdk_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
+{
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	rte_write8(0, priv->rx + RX_WANT_INTR + 0x40 * queue_id);
+	return 0;
 }
 
 static uint16_t
