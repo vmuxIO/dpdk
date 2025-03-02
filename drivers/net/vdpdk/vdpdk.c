@@ -7,10 +7,17 @@
 #include <rte_io.h>
 #include <rte_log.h>
 
+#include <assert.h>
 #include <sys/queue.h>
 
 // TODO: remove
-#include <assert.h>
+#define VDPDK_DEBUG_ASSERT
+
+#ifdef VDPDK_DEBUG_ASSERT
+#define VDPDK_ASSERT(x) assert(x)
+#else
+#define VDPDK_ASSERT(x)
+#endif
 
 extern int vdpdk_log;
 
@@ -91,6 +98,10 @@ enum VDPDK_OFFSET {
 
 	EVENT_TX = 0x300,
 
+	TX_OFFLOAD_CAPA = 0x400,
+	RX_OFFLOAD_CAPA = 0x408,
+	MAC_ADDRESS = 0x410,
+
 	// TX BAR
 	// 0x0 - 0xFF: Reserved for queue setup
 	TX_WANT_SIGNAL = 0x100,
@@ -104,10 +115,12 @@ enum VDPDK_OFFSET {
 
 enum VDPDK_CONSTS {
 	REGION_SIZE = 0x1000,
-	MAX_RX_DESCS = 512,
+	MAX_DESCS = 4096,
 
-	TX_DESC_SIZE = 0x20,
+	TX_DESC_SIZE = 0x28,
 	TX_FLAG_AVAIL = 1,
+	TX_FLAG_ATTACHED = 1 << 1,
+	TX_FLAG_NEXT = 1 << 2,
 
 	RX_DESC_SIZE = 0x20,
 	RX_FLAG_AVAIL = 1,
@@ -126,6 +139,9 @@ struct vdpdk_private_data {
 	unsigned char *tx;
 	unsigned char *rx;
 	unsigned char *flow;
+
+	uint64_t tx_offload_capa;
+	uint64_t rx_offload_capa;
 
 	struct vdpdk_flow_list flow_list;
 };
@@ -151,12 +167,22 @@ struct vdpdk_tx_desc {
 	};
 	uint16_t len;
 	uint16_t flags;
+	uint16_t tso_segsz;
+	uint8_t l2_len, l3_len;
+	uint64_t offload_flags;
+	uint8_t l4_len;
 	struct rte_mbuf *buf;
 };
+// Assert that struct layout is as vmux expects
 static_assert(sizeof(struct vdpdk_tx_desc) <= TX_DESC_SIZE, "vdpdk tx descriptor: invalid size");
 static_assert(offsetof(struct vdpdk_tx_desc, dma_addr) == 0, "vdpdk tx descriptor: unexpected offset");
 static_assert(offsetof(struct vdpdk_tx_desc, len) == 8, "vdpdk tx descriptor: unexpected offset");
 static_assert(offsetof(struct vdpdk_tx_desc, flags) == 10, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, tso_segsz) == 12, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, l2_len) == 14, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, l3_len) == 15, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, offload_flags) == 16, "vdpdk tx descriptor: unexpected offset");
+static_assert(offsetof(struct vdpdk_tx_desc, l4_len) == 24, "vdpdk tx descriptor: unexpected offset");
 
 struct vdpdk_rx_queue {
 	struct vdpdk_private_data *private_data;
@@ -218,6 +244,9 @@ static int
 vdpdk_dev_configure(struct rte_eth_dev *dev)
 {
 	VDPDK_TRACE();
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	priv->tx_offload_capa = rte_read64(priv->signal + TX_OFFLOAD_CAPA);
+	priv->rx_offload_capa = rte_read64(priv->signal + RX_OFFLOAD_CAPA);
 	return 0;
 }
 
@@ -225,23 +254,57 @@ static int
 vdpdk_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 {
 	VDPDK_TRACE();
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+
 	dev_info->min_rx_bufsize = 1024;
-	dev_info->max_rx_pktlen = 9728;
+	dev_info->max_rx_pktlen = 2048;
 	dev_info->max_rx_queues = 4;
 	dev_info->max_tx_queues = 1;
+	dev_info->max_mac_addrs = 1;
+	dev_info->max_vfs = 0;
+	dev_info->max_mtu = dev_info->max_rx_pktlen - 26;
+	dev_info->min_mtu = RTE_ETHER_MIN_MTU;
 
-	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
-		.nb_max = MAX_RX_DESCS,
-		.nb_min = 64,
-		.nb_align = 32,
-	};
+	dev_info->tx_offload_capa = priv->tx_offload_capa;
+	dev_info->rx_offload_capa = priv->rx_offload_capa;
+	dev_info->flow_type_rss_offloads = 0;
+
+	dev_info->tx_queue_offload_capa = 0;
+	dev_info->rx_queue_offload_capa = 0;
+
+	dev_info->reta_size = 0;
+	dev_info->hash_key_size = 0;
+
+	dev_info->default_rxconf = (struct rte_eth_rxconf) {0};
 
 	dev_info->default_txconf = (struct rte_eth_txconf) {
 		.tx_free_thresh = DEFAULT_TX_FREE_THRESH,
 	};
 
-	// TODO
-	dev_info->max_mtu = 2000;
+	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = MAX_DESCS,
+		.nb_min = 64,
+		.nb_align = 32,
+	};
+
+	dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = MAX_DESCS,
+		.nb_min = 64,
+		.nb_align = 32,
+	};
+
+	// Unclear what this should be for our case.
+	dev_info->speed_capa = RTE_ETH_LINK_SPEED_10G;
+
+	dev_info->nb_rx_queues = dev->data->nb_rx_queues;
+	dev_info->nb_tx_queues = dev->data->nb_tx_queues;
+
+	dev_info->default_rxportconf.burst_size = 32;
+	dev_info->default_txportconf.burst_size = 32;
+	dev_info->default_rxportconf.nb_queues = 1;
+	dev_info->default_txportconf.nb_queues = 1;
+	dev_info->default_rxportconf.ring_size = 1024;
+	dev_info->default_txportconf.ring_size = 1024;
 
 	return 0;
 }
@@ -293,6 +356,13 @@ vdpdk_dev_start(struct rte_eth_dev *dev)
 
 	if (vdpdk_rxq_intr_setup(dev)) {
 		return -EIO;
+	}
+
+	for (size_t i = 0; i < dev->data->nb_tx_queues; i++) {
+		dev->data->tx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
+	}
+	for (size_t i = 0; i < dev->data->nb_rx_queues; i++) {
+		dev->data->rx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
 	}
 
 	return 0;
@@ -587,8 +657,7 @@ vdpdk_recv_pkts(void *rx_queue,
 		// because at this point there is always at least one free descriptor
 		struct vdpdk_rx_desc *new_desc = (struct vdpdk_rx_desc *)(ring + (size_t)(rxq->back_idx & rxq->idx_mask) * RX_DESC_SIZE);
 
-		// TODO: remove assertion
-		assert(!(new_desc->flags & RX_FLAG_AVAIL) && new_desc->buf == NULL);
+		VDPDK_ASSERT(!(new_desc->flags & RX_FLAG_AVAIL) && new_desc->buf == NULL);
 
 		new_desc->buf = new_buf;
 		new_desc->dma_addr = rte_pktmbuf_iova(new_buf);
@@ -611,40 +680,149 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *seg = tx_pkts[i];
 
-		// TODO:
-		if (seg->next != NULL) {
-			break;
+		// Common case: One descriptor packets
+		if (seg->nb_segs == 1) {
+			struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE);
+			uint16_t flags = rte_read16(&desc->flags);
+
+			// If FLAG_AVAIL is set, all descriptors are filled
+			if (flags & TX_FLAG_AVAIL) {
+				break;
+			}
+
+			// FLAG_AVAIL is not set, therefore vdpdk owns the descriptor
+
+			// Free descriptor
+			if (desc->buf) {
+				rte_pktmbuf_free(desc->buf);
+				desc->buf = NULL;
+				txq->alloc_descs--;
+			}
+
+			// Fill with data
+			desc->buf = seg;
+			desc->dma_addr = rte_pktmbuf_iova(seg);
+			desc->len = seg->data_len;
+			desc->tso_segsz = seg->tso_segsz;
+			desc->l2_len = seg->l2_len;
+			desc->l3_len = seg->l3_len;
+			desc->l4_len = seg->l4_len;
+			desc->offload_flags = seg->ol_flags & RTE_MBUF_F_TX_OFFLOAD_MASK;
+			txq->alloc_descs++;
+
+			// Set FLAG_AVAIL to give buffer to vmux
+			flags = TX_FLAG_AVAIL;
+			rte_write16(flags, &desc->flags);
+
+			// Go to next descriptor
+			txq->idx++;
+		} else {
+			// Packet consists of multiple segments
+
+			// Check if we have enough free descriptors
+
+			// On a max-sized ring, max_descs overflows to zero
+			uint16_t max_descs = txq->idx_mask + 1;
+			if (seg->nb_segs > max_descs && max_descs != 0) {
+				// Not enough descriptors in ring
+				break;
+			}
+
+			// Check if all descriptors in [idx, idx + nb_segs] are free
+			bool have_enough_descs = true;
+			uint16_t idx_end = txq->idx + seg->nb_segs;
+			for (uint16_t idx_i = txq->idx; idx_i != idx_end; idx_i++) {
+				struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(idx_i & txq->idx_mask) * TX_DESC_SIZE);
+				uint16_t flags = rte_read16(&desc->flags);
+
+				// If FLAG_AVAIL is set, descriptor is not free for us
+				if (flags & TX_FLAG_AVAIL) {
+					have_enough_descs = false;
+					break;
+				}
+			}
+			if (!have_enough_descs) {
+				// Not enough free descriptors
+				break;
+			}
+
+			// At this point, we know the range of descriptors is owned by vdpdk
+
+			// We delay writing the first descriptor, to ensure all descriptors become
+			// available to vmux at the same time.
+
+			// Start with the middle descriptors
+			struct rte_mbuf *seg_i = seg->next;
+			if (seg->nb_segs > 2) {
+				for (uint16_t idx_i = txq->idx + 1; idx_i != idx_end - 1; idx_i++, seg_i = seg_i->next) {
+					struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(idx_i & txq->idx_mask) * TX_DESC_SIZE);
+
+					// Free descriptor
+					if (desc->buf) {
+						rte_pktmbuf_free(desc->buf);
+						desc->buf = NULL;
+						txq->alloc_descs--;
+					}
+
+					// Fill with data
+					// This mbuf segment will be freed with the first segment, so we do not
+					// save it here.
+					desc->buf = NULL;
+					desc->dma_addr = rte_pktmbuf_iova(seg_i);
+					desc->len = seg_i->data_len;
+					// Make this descriptor available to vmux and connect it to the next one
+					desc->flags = TX_FLAG_AVAIL | TX_FLAG_NEXT;
+				}
+			}
+
+			// Add last segment, now pointed to by seg_i
+			{
+				struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)((idx_end - 1) & txq->idx_mask) * TX_DESC_SIZE);
+
+				// Free descriptor
+				if (desc->buf) {
+					rte_pktmbuf_free(desc->buf);
+					desc->buf = NULL;
+					txq->alloc_descs--;
+				}
+
+				// Fill with data
+				desc->buf = NULL;
+				desc->dma_addr = rte_pktmbuf_iova(seg_i);
+				desc->len = seg_i->data_len;
+				// Make this descriptor available to vmux
+				desc->flags = TX_FLAG_AVAIL;
+			}
+
+			// Finish with the first descriptor, making all descriptors available at once
+			{
+				struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE);
+
+				// Free descriptor
+				if (desc->buf) {
+					rte_pktmbuf_free(desc->buf);
+					desc->buf = NULL;
+					txq->alloc_descs--;
+				}
+
+				// Fill with data
+				desc->buf = seg;
+				desc->dma_addr = rte_pktmbuf_iova(seg);
+				desc->len = seg->data_len;
+				desc->tso_segsz = seg->tso_segsz;
+				desc->l2_len = seg->l2_len;
+				desc->l3_len = seg->l3_len;
+				desc->l4_len = seg->l4_len;
+				desc->offload_flags = seg->ol_flags & RTE_MBUF_F_TX_OFFLOAD_MASK;
+				txq->alloc_descs++;
+
+				// Set FLAG_AVAIL to give buffer to vmux
+				rte_write16(TX_FLAG_AVAIL | TX_FLAG_NEXT, &desc->flags);
+			}
+
+			// Update queue idx
+			txq->idx = idx_end;
 		}
-
-		struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(txq->idx & txq->idx_mask) * TX_DESC_SIZE);
-		uint16_t flags = rte_read16(&desc->flags);
-
-		// If FLAG_AVAIL is set, all descriptors are filled
-		if (flags & TX_FLAG_AVAIL) {
-			break;
-		}
-
-		// FLAG_AVAIL is not set, therefore vdpdk owns the descriptor
-
-		// Free descriptor
-		if (desc->buf) {
-			rte_pktmbuf_free(desc->buf);
-			desc->buf = NULL;
-			txq->alloc_descs--;
-		}
-
-		// Fill with data
-		desc->buf = seg;
-		desc->dma_addr = rte_pktmbuf_iova(seg);
-		desc->len = seg->data_len;
-		txq->alloc_descs++;
-
-		// Set FLAG_AVAIL to give buffer to vmux
-		flags |= TX_FLAG_AVAIL;
-		rte_write16(flags, &desc->flags);
-
-		// Go to next descriptor
-		txq->idx++;
 	}
 
 	// Clean ring if alloced buffers exceeds threshold
@@ -674,8 +852,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 		for (; clean_idx != end_idx; clean_idx--) {
 			struct vdpdk_tx_desc *desc = (struct vdpdk_tx_desc *)(ring + (size_t)(clean_idx & txq->idx_mask) * TX_DESC_SIZE);
 
-			// TODO: remove
-			assert(desc->flags == 0);
+			VDPDK_ASSERT(desc->flags == 0);
 
 			if (!desc->buf) {
 				break;
@@ -699,6 +876,12 @@ static int
 vdpdk_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
 	VDPDK_TRACE();
+	struct rte_eth_link *link = &dev->data->dev_link;
+	link->link_speed = RTE_ETH_SPEED_NUM_10G;
+	link->link_duplex = 1;
+	link->link_autoneg = 1;
+	link->link_status = 1;
+	(void)wait_to_complete;
 	return 0;
 }
 
@@ -897,7 +1080,9 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 		VDPDK_LOG(ERR, "Failed to allocate MAC address memory.");
 		return -ENOMEM;
 	}
-	rte_ether_unformat_addr("90:e2:ba:c3:79:66", dev->data->mac_addrs);
+	static_assert(sizeof(*dev->data->mac_addrs) <= sizeof(uint64_t), "");
+	uint64_t mac_addr_bytes = rte_read64((char *)pci_dev->mem_resource[0].addr + MAC_ADDRESS);
+	rte_memcpy(dev->data->mac_addrs, &mac_addr_bytes, sizeof(*dev->data->mac_addrs));
 
 	void *dkaddr = pci_dev->mem_resource[0].addr;
 	char dkbuf[100] = {0};
