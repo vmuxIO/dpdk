@@ -244,9 +244,7 @@ static int
 vdpdk_dev_configure(struct rte_eth_dev *dev)
 {
 	VDPDK_TRACE();
-	struct vdpdk_private_data *priv = dev->data->dev_private;
-	priv->tx_offload_capa = rte_read64(priv->signal + TX_OFFLOAD_CAPA);
-	priv->rx_offload_capa = rte_read64(priv->signal + RX_OFFLOAD_CAPA);
+	(void)dev;
 	return 0;
 }
 
@@ -1109,17 +1107,20 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 		if (c == '\0') break;
 	}
 
-	struct vdpdk_private_data *regs = dev->data->dev_private;
-	regs->signal = pci_dev->mem_resource[0].addr;
-	regs->tx = pci_dev->mem_resource[1].addr;
-	regs->rx = pci_dev->mem_resource[2].addr;
-	regs->flow = pci_dev->mem_resource[3].addr;
+	struct vdpdk_private_data *priv = dev->data->dev_private;
+	priv->signal = pci_dev->mem_resource[0].addr;
+	priv->tx = pci_dev->mem_resource[1].addr;
+	priv->rx = pci_dev->mem_resource[2].addr;
+	priv->flow = pci_dev->mem_resource[3].addr;
+	priv->tx_offload_capa = rte_read64(priv->signal + TX_OFFLOAD_CAPA);
+	priv->rx_offload_capa = rte_read64(priv->signal + RX_OFFLOAD_CAPA);
 
-	TAILQ_INIT(&regs->flow_list);
+	TAILQ_INIT(&priv->flow_list);
 
 	struct rte_intr_handle *intr_handle = pci_dev->intr_handle;
 	rte_intr_callback_register(intr_handle, vdpdk_interrupt_handler, dev);
 	rte_intr_enable(intr_handle);
+
 
 	return 0;
 }
