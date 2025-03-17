@@ -341,7 +341,7 @@ vdpdk_rxq_intr_setup(struct rte_eth_dev *dev)
 		}
 
 		for (unsigned i = 0; i < num_intrs; i++) {
-			rte_intr_vec_list_index_set(intr_handle, i, i);
+			rte_intr_vec_list_index_set(intr_handle, i, i + RTE_INTR_VEC_RXTX_OFFSET);
 		}
 	}
 
