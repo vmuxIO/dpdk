@@ -1058,6 +1058,14 @@ vdpdk_flow_flush(struct rte_eth_dev *dev, struct rte_flow_error *error)
 	return 0;
 }
 
+static void
+vdpdk_interrupt_handler(void *param)
+{
+	VDPDK_TRACE();
+	struct rte_eth_dev *dev = (struct rte_eth_dev *)param;
+	rte_intr_ack(dev->intr_handle);
+}
+
 static int
 vdpdk_dev_init(struct rte_eth_dev *dev)
 {
@@ -1108,6 +1116,10 @@ vdpdk_dev_init(struct rte_eth_dev *dev)
 	regs->flow = pci_dev->mem_resource[3].addr;
 
 	TAILQ_INIT(&regs->flow_list);
+
+	struct rte_intr_handle *intr_handle = pci_dev->intr_handle;
+	rte_intr_callback_register(intr_handle, vdpdk_interrupt_handler, dev);
+	rte_intr_enable(intr_handle);
 
 	return 0;
 }
