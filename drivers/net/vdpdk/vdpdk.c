@@ -472,6 +472,9 @@ vdpdk_rx_queue_setup(struct rte_eth_dev *dev,
 
 	dev->data->rx_queues[queue_idx] = rxq;
 
+	// Ensure interrupts are disabled
+	rte_write8(0, rxq->private_data->rx + RX_WANT_INTR + 0x40 * queue_idx);
+
 	// Signal queue creation
 	rte_write64_relaxed(ring->iova, rxq->private_data->rx);
 	rte_write16_relaxed(rxq->idx_mask, rxq->private_data->rx + 8);
