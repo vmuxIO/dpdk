@@ -695,7 +695,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 			// Free descriptor
 			if (desc->buf) {
-				rte_pktmbuf_free(desc->buf);
+				rte_pktmbuf_free_seg(desc->buf);
 				desc->buf = NULL;
 				txq->alloc_descs--;
 			}
@@ -760,17 +760,16 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 					// Free descriptor
 					if (desc->buf) {
-						rte_pktmbuf_free(desc->buf);
+						rte_pktmbuf_free_seg(desc->buf);
 						desc->buf = NULL;
 						txq->alloc_descs--;
 					}
 
 					// Fill with data
-					// This mbuf segment will be freed with the first segment, so we do not
-					// save it here.
-					desc->buf = NULL;
+					desc->buf = seg_i;
 					desc->dma_addr = rte_pktmbuf_iova(seg_i);
 					desc->len = seg_i->data_len;
+					txq->alloc_descs++;
 					// Make this descriptor available to vmux and connect it to the next one
 					desc->flags = TX_FLAG_AVAIL | TX_FLAG_NEXT;
 				}
@@ -782,15 +781,16 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 				// Free descriptor
 				if (desc->buf) {
-					rte_pktmbuf_free(desc->buf);
+					rte_pktmbuf_free_seg(desc->buf);
 					desc->buf = NULL;
 					txq->alloc_descs--;
 				}
 
 				// Fill with data
-				desc->buf = NULL;
+				desc->buf = seg_i;
 				desc->dma_addr = rte_pktmbuf_iova(seg_i);
 				desc->len = seg_i->data_len;
+				txq->alloc_descs++;
 				// Make this descriptor available to vmux
 				desc->flags = TX_FLAG_AVAIL;
 			}
@@ -801,7 +801,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 
 				// Free descriptor
 				if (desc->buf) {
-					rte_pktmbuf_free(desc->buf);
+					rte_pktmbuf_free_seg(desc->buf);
 					desc->buf = NULL;
 					txq->alloc_descs--;
 				}
@@ -859,7 +859,7 @@ vdpdk_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts) {
 				break;
 			}
 
-			rte_pktmbuf_free(desc->buf);
+			rte_pktmbuf_free_seg(desc->buf);
 			desc->buf = NULL;
 			txq->alloc_descs--;
 		}
